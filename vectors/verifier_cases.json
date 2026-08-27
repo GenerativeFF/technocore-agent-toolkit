@@ -1,0 +1,79 @@
+[
+  {
+    "name": "valid-plain-ascii",
+    "public_key_b64": "z5XBdwHq+1/AOyxLjZkr57Zgkt4lZU6eqkYapaI34no=",
+    "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+    "room": "lobby",
+    "nonce": "1700000000000",
+    "text": "hello Technocore",
+    "sig_b64url": "GckHAte_zJvMm1nrefNY2GoUCtupp_Rb_axo-KxrSzdds0-0ydsCRk5MEXFiGF1T2tCfEX5h9ooWSe3WVcfVCQ",
+    "expect_valid": true,
+    "expect_canonical_sha256": "81808c469484b7f30253eccba579a02a6129b3046770079d1a1630fc6fad0ecb"
+  },
+  {
+    "name": "invalid-text-tampered",
+    "public_key_b64": "INcdhhbe+5gpXXzXzvdheeB8kfPL2tASMGDDDzHqKmI=",
+    "did": "did:key:z6MkgfTLj28Nukr3yJsoyVRkcUZBbSHMyC4YjVphpRdgBL8Z",
+    "room": "lobby",
+    "nonce": "1700000000001",
+    "text": "abd",
+    "sig_b64url": "na5ECs_QPyME1DUaFt95__ey5HNljIJAwEYMvBdX6DPYro-6E2UeKy0y4XHPu2KvEPz2Ti0H-i7mEs7HdrrrDQ",
+    "expect_valid": false,
+    "expect_canonical_sha256": "60c089f2f856960362fbdf989b770c017d8ab6dc4fc7b74ed95026967c7f1a68"
+  },
+  {
+    "name": "invalid-nonce-tampered",
+    "public_key_b64": "evCD1o5Bh+AjcBxnxY97aRURkWoOqPgPrNYYnxJaE1w=",
+    "did": "did:key:z6MknjAVo7wgg7aN5MnTjWd2gBQJ9FLSp2qyFpp4VJttGkao",
+    "room": "lobby",
+    "nonce": "1700000000003",
+    "text": "fixed",
+    "sig_b64url": "9lXhkYDYP3LsFScnU7WtxV0DtuAZcfRKHyDvw3moxqrbXENZ5Wu1X9n-HxMHcwoOWzbzJfCEc3AKALV02ZsMBg",
+    "expect_valid": false,
+    "expect_canonical_sha256": "d6df2b205a2ce86f86c7b5a695158d789e582b3fb77982db61ff25b63573b48b"
+  },
+  {
+    "name": "invalid-room-tampered",
+    "public_key_b64": "6P00J9gjLcjTckH4U0vUZDGCcaxFWW+hxvwd92CXnss=",
+    "did": "did:key:z6Mkv8kZnMx5cCVMfbxejTEPuFAorMFGiWs6Au2aMwf7WYUi",
+    "room": "dev",
+    "nonce": "1700000000004",
+    "text": "hi",
+    "sig_b64url": "SVdKn463MZKweIHjSX9LCFxfFRjkcQ6FlrxM03qxpJ0ZVRzAeJ7tWVPL56lTKAJqtIsccU9Ybiv42AW9jPnZBw",
+    "expect_valid": false,
+    "expect_canonical_sha256": "74b26121212ccd484a98688340bce3d697d91f2ebcd15c1bfb554d341e6bcac3"
+  },
+  {
+    "name": "valid-sweep-normalised",
+    "public_key_b64": "S+h7GkCRYPFdydv3c9nCrE7BQqP6TWt+qz38BbDi7v4=",
+    "did": "did:key:z6MkjZaEJDFxdNxFNyGZtjgP4jxA8RuBptdRSFFSce36qxww",
+    "room": "lobby",
+    "nonce": "1700000000005",
+    "text": "a b",
+    "sig_b64url": "blcywKwclPZNNCb531qGpceO7yxyYki1Jm3rWJSRTX1P47TQ5fjhzIdWk0y9Xeq4O-AvhXDUzZx1PiAsvJMYDw",
+    "expect_valid": true,
+    "expect_canonical_sha256": "d929b029b821a4968475c18dfb364964b2196529ea9c6887b70d78fb8d623050"
+  },
+  {
+    "name": "invalid-sig-length",
+    "public_key_b64": "z3PBv4fCfc9Ai9SClNcNNmVkWD1N2rtjMpctVdcddLE=",
+    "did": "did:key:z6MktR4pDPA1uB1a1jBg7dcTYPKzRBtAZg7g5X6j3goXjFpc",
+    "room": "lobby",
+    "nonce": "1700000000006",
+    "text": "anything",
+    "sig_b64url": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "expect_valid": false,
+    "expect_canonical_sha256": "2a11a56d93370afd7de1a48c96e5a0aa6942e380845ad75d04d1dbc05862316e"
+  },
+  {
+    "name": "valid-cjk-and-emoji",
+    "public_key_b64": "luYGgKDsAfB9X1EVxUcFSYAN0j9fs3xc/765eYf7pH8=",
+    "did": "did:key:z6MkpcJdpzjg34nmZKBm76evSW7NctLfnmFXzEwRKp6m3Eb8",
+    "room": "dev",
+    "nonce": "1700000000007",
+    "text": "你好 Technocore 🌍",
+    "sig_b64url": "PKjaBBn5A8Go-WHLZGlZYI8zULBwz5L-hYjLshPoxklwahW0nRFr3wHF5sGF0lWHvxI3JzSaLBNBPE8y2T5eBw",
+    "expect_valid": true,
+    "expect_canonical_sha256": "b5828c3a2471a4f4759b5a89c14225559c506c0f1bf6a0e40d59f54d68866d53"
+  }
+]
