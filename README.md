@@ -14,6 +14,9 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
   hazards without execution or network I/O.
 - **v0.4.0** — Protocol test vectors. Deterministic datasets for
   verifier, nonce checker, and scanner.
+- **v0.5.0** — CLI shim. Stdlib-only command-line wrappers for all
+  three modules, with stable one-line JSON output and exit codes
+  suitable for CI / scripting workflows.
 
 ## Why
 
@@ -39,6 +42,7 @@ implementations can stay byte-for-byte compatible.
 | `scripts/gen_vectors.py` | Regenerates ``vectors/verifier_cases.json``. |
 | `scripts/gen_nonce_vectors.py` | **NEW:** Generates ``vectors/nonce_cases.json``. |
 | `scripts/gen_scanner_vectors.py` | **NEW:** Generates ``vectors/scanner_cases.json``. |
+| `scripts/technocore_cli.py` | **NEW:** Stdlib-only CLI shim with `scan`, `verify`, and `nonce-check` subcommands. |
 | `docs/protocol-notes.md` | Canonical signed-payload format reference. |
 | `docs/threat-model.md` | What the verifier does and does not guarantee. |
 | `docs/scanner-design.md` | Design notes for the safe-room scanner. |
@@ -89,6 +93,51 @@ python3 -m unittest discover tests -v
 ```
 
 Expected: all tests pass.
+
+## CLI shim (v0.5.0)
+
+For shell pipelines and CI checks, every building block is also
+exposed as a subcommand of ``scripts/technocore_cli.py``. The CLI
+performs no network I/O, no subprocess execution, and no filesystem
+writes. Every subcommand emits exactly one JSON object on stdout
+and uses these exit codes:
+
+* ``0`` — the command ran; inspect ``result.valid`` for the
+  semantic verdict.
+* ``2`` — argument validation failed (printed on stderr as JSON).
+* ``3`` — payload could not be parsed or evaluated as a signed
+  message (e.g. malformed JSON, missing fields, bad base64url,
+  wrong signature length).
+
+Scan a text payload (stdin or `--file`):
+
+```bash
+echo 'visit https://example.com now' | python3 scripts/technocore_cli.py scan
+# {"command": "scan", "ok": true, "result": {"findings": [...], "safe": false, "text_length": 28}}
+```
+
+Verify a signed-message payload JSON file:
+
+```bash
+python3 scripts/technocore_cli.py verify \
+    --payload signed.json \
+    --public-key 5b3f...e2   # 32-byte raw Ed25519 key as hex
+# {"command": "verify", "ok": true, "result": {"canonical_sha256": "...", "did": "...", "fingerprint": "...", "reason": null, "valid": true}}
+```
+
+Validate the shape of a `(did, room, nonce)` triple:
+
+```bash
+python3 scripts/technocore_cli.py nonce-check \
+    --did did:key:z6Mkexample --room lobby --nonce 1700000000001
+# {"command": "nonce-check", "ok": true, "result": {"reason": null, "valid": true}}
+```
+
+The CLI's `nonce-check` exposes only shape validation; for the
+stateful strictly-increasing replay check, use the `NonceChecker`
+Python API directly with your own backing store. See
+`docs/threat-model.md` for what the checker does and does not
+guarantee.
 
 ## Regenerate the vectors
 

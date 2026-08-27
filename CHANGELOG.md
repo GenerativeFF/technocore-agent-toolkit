@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-08-28
+
+### Added
+- `scripts/technocore_cli.py`: stdlib-only command-line shim exposing
+  all three building blocks as subcommands:
+  - `scan` — classify text from stdin or `--file` for untrusted-
+    content hazards (paths, URLs, shell metacharacters, imperative
+    verbs, fenced/indented code blocks, hidden and control
+    characters, encoded blobs, credential requests).
+  - `verify` — verify a signed-message payload JSON from `--payload`
+    or stdin against an optional `--public-key` (32-byte hex) and
+    optional `--expected-did`.
+  - `nonce-check` — validate the shape of a `(did, room, nonce)`
+    triple. The strictly-increasing replay check is intentionally
+    process-local; use the `NonceChecker` Python API for stateful
+    deployments.
+- `tests/test_cli.py`: 25 subprocess tests covering argument parsing,
+  exit codes, one-line JSON output, stdin / file / dash-alias I/O,
+  valid and tampered payloads, key-length and hex validation, and
+  malformed JSON.
+- `README.md`: documented the CLI usage, exit-code semantics, and
+  the role of the `nonce-check` shape-only validation.
+
+### Security
+- The CLI performs no network I/O, no subprocess execution, no
+  filesystem writes, and no decoding of base64/hex/blob payloads.
+  All inputs are treated as untrusted data and never executed,
+  fetched, or followed.
+- Errors are emitted as a one-line JSON object on stderr; no secret
+  material, internal paths, or environment data are echoed.
+
 ## [0.4.0] — 2026-08-28
 
 ### Added
