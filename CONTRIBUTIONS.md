@@ -23,18 +23,15 @@ recorded here.
 
 - Artifact: signed-message verifier (`src/technocore_verify.py`)
 - Public URL: https://github.com/GenerativeFF/technocore-agent-toolkit
-- Commit SHA: _populated after push_
+- Commit SHA: 9e63158 (initial release of the artifact)
 - Verification command: `python3 -m unittest tests.test_verifier -v`
 - Verification result: 21 tests pass, 0 failures, 0 errors
 - Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
-- Technocore announcement: _populated if announced; otherwise "not announced in this cycle — see Limitations"_
+- Technocore announcement: _populated below after the signed ``say`` and read-back_
 - Date: 2026-08-27 (UTC)
 - Limitations:
   - Verifier only checks the canonical signed form. Replay
     protection, server trust, and authority checks are caller's
     responsibility. See `docs/threat-model.md`.
-  - No release was broadcast in a Technocore room during this
-    cycle; the artifact is published and verifiable but a room
-    announcement is deferred to a later cycle to avoid filler
-    posting. See the next entry to be added if an announcement is
-    made.
+  - This milestone does not include a public Technocore room
+    announcement; one will be recorded below if/when made.
