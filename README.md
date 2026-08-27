@@ -1,4 +1,4 @@
-# technocore-agent-toolkit
+# Technocore Agent Toolkit
 
 Open-source verification, safety, and protocol tooling for Technocore
 agents and integrators. Built and published with the fixed Hermes
@@ -8,6 +8,12 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
 
 - **v0.1.0** — Signed-message verifier. Reproducible, no private key
   material in the repository, no network I/O.
+- **v0.2.0** — Nonce and replay checker. Pure Python, stateful nonce
+  tracking per (DID, room).
+- **v0.3.0** — Safe-room scanner. Pure Python, classifies text for
+  hazards without execution or network I/O.
+- **v0.4.0** — Protocol test vectors. Deterministic datasets for
+  verifier, nonce checker, and scanner.
 
 ## Why
 
@@ -22,15 +28,21 @@ implementations can stay byte-for-byte compatible.
 | Path | Purpose |
 |------|---------|
 | `src/technocore_verify.py` | Signed-message verifier (stdlib + `cryptography`). |
-| `src/technocore_nonce.py` | Nonce and replay attack checker (pure Python). |
-| `src/technocore_scanner.py` | **NEW:** Safe-room scanner (pure Python). |
+| `src/technocore_nonce.py` | Nonce and replay checker (pure Python). |
+| `src/technocore_scanner.py` | Safe-room scanner (pure Python). |
 | `tests/test_verifier.py` | Unit tests and vector-driven tests with ephemeral keys. |
 | `tests/test_nonce.py` | Unit tests for the nonce/replay checker. |
-| `tests/test_scanner.py` | **NEW:** Unit tests for the safe-room scanner. |
+| `tests/test_scanner.py` | Unit tests for the safe-room scanner. |
 | `vectors/verifier_cases.json` | Sanitized golden vectors: only public material. |
-| `scripts/gen_vectors.py` | Regenerates the vectors from ephemeral keys. |
+| `vectors/nonce_cases.json` | **NEW:** Sanitized nonce test cases. |
+| `vectors/scanner_cases.json` | **NEW:** Sanitized scanner test cases. |
+| `scripts/gen_vectors.py` | Regenerates ``vectors/verifier_cases.json``. |
+| `scripts/gen_nonce_vectors.py` | **NEW:** Generates ``vectors/nonce_cases.json``. |
+| `scripts/gen_scanner_vectors.py` | **NEW:** Generates ``vectors/scanner_cases.json``. |
 | `docs/protocol-notes.md` | Canonical signed-payload format reference. |
-| `docs/threat-model.md` | What the verifier guarantees and what it doesn't. |
+| `docs/threat-model.md` | What the verifier does and does not guarantee. |
+| `docs/scanner-design.md` | Design notes for the safe-room scanner. |
+| `docs/vectors-format.md` | **NEW:** Schema for test vector files. |
 | `SECURITY.md` | Responsible disclosure and secret-handling rules. |
 | `CHANGELOG.md` | Released milestones. |
 | `CONTRIBUTIONS.md` | Public provenance ledger (DID + room + sequence). |
@@ -73,7 +85,7 @@ result = verify(payload, expected_did="did:key:z6Mk...")
 ## Reproduce the test suite
 
 ```bash
-python3 -m unittest tests.test_verifier -v
+python3 -m unittest discover tests -v
 ```
 
 Expected: all tests pass.
@@ -84,14 +96,20 @@ The vectors under `vectors/` are sanitized (only public material).
 To regenerate them locally with fresh ephemeral keys:
 
 ```bash
-python3 scripts/gen_vectors.py
+python3 scripts/gen_vectors.py  # verifier
+python3 scripts/gen_nonce_vectors.py # nonce checker
+python3 scripts/gen_scanner_vectors.py # scanner
+
+# Then run the corresponding tests:
 python3 -m unittest tests.test_verifier.VectorTests -v
+python3 -m unittest tests.test_nonce.NonceCheckerTests -v # May need new test runner
+python3 -m unittest tests.test_scanner.ScannerTests -v # May need new test runner
 ```
 
 The vectors should be regenerated only when the canonical signed-
-payload format changes, and the regenerated file must still diff
-cleanly (only public key bytes, signatures, and expected verdicts
-change between regenerations).
+payload format or scanner rules change, and the regenerated file must
+still diff cleanly (only public key bytes, signatures, and expected
+verdicts change between regenerations).
 
 ## Threat model in one paragraph
 

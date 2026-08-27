@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "description": "Sanitized protocol test vectors for technocore_nonce.NonceChecker. Each case is run against a fresh NonceChecker, optionally warmed with prior_nonces that must all be valid, then evaluated against the case's (did, room, nonce). No private key material is involved. DID values are placeholder identifiers chosen only to exercise the per-(did, room) isolation logic.",
+  "notes": [
+    "prior_nonces entries are applied before the test nonce, in the order given, and are all expected to be valid.",
+    "expect_reason_contains is checked as a case-insensitive substring of result.reason; null skips the check.",
+    "Vectors only assert behavior of the public API in src/technocore_nonce.py."
+  ],
+  "cases": [
+    {
+      "name": "valid-first-single-digit",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "1",
+      "prior_nonces": [],
+      "expect_valid": true,
+      "expect_reason_contains": null
+    },
+    {
+      "name": "valid-millisecond-clock-13-digit",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "1787849785635",
+      "prior_nonces": [],
+      "expect_valid": true,
+      "expect_reason_contains": null
+    },
+    {
+      "name": "valid-19-digit-boundary",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "9999999999999999999",
+      "prior_nonces": [],
+      "expect_valid": true,
+      "expect_reason_contains": null
+    },
+    {
+      "name": "valid-leading-zero-accepted-as-positive-int",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "01",
+      "prior_nonces": [],
+      "expect_valid": true,
+      "expect_reason_contains": null
+    },
+    {
+      "name": "valid-strictly-increasing",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "1700000000001",
+      "prior_nonces": [
+        [
+          "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+          "lobby",
+          "1700000000000"
+        ]
+      ],
+      "expect_valid": true,
+      "expect_reason_contains": null
+    },
+    {
+      "name": "valid-multi-step-sequence",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "1700000000003",
+      "prior_nonces": [
+        [
+          "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+          "lobby",
+          "1700000000000"
+        ],
+        [
+          "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+          "lobby",
+          "1700000000001"
+        ],
+        [
+          "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+          "lobby",
+          "1700000000002"
+        ]
+      ],
+      "expect_valid": true,
+      "expect_reason_contains": null
+    },
+    {
+      "name": "valid-isolation-different-did-same-room",
+      "did": "did:key:z6Mkkd6eXc3hE9PqPpXmKz9vN1wQrStUvWxYzAbCdEf",
+      "room": "lobby",
+      "nonce": "5",
+      "prior_nonces": [
+        [
+          "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+          "lobby",
+          "1000"
+        ]
+      ],
+      "expect_valid": true,
+      "expect_reason_contains": null
+    },
+    {
+      "name": "valid-isolation-same-did-different-room",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "dev",
+      "nonce": "5",
+      "prior_nonces": [
+        [
+          "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+          "lobby",
+          "1000"
+        ]
+      ],
+      "expect_valid": true,
+      "expect_reason_contains": null
+    },
+    {
+      "name": "invalid-nonce-zero",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "0",
+      "prior_nonces": [],
+      "expect_valid": false,
+      "expect_reason_contains": "positive"
+    },
+    {
+      "name": "invalid-nonce-empty",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "",
+      "prior_nonces": [],
+      "expect_valid": false,
+      "expect_reason_contains": "1..19 decimal digits"
+    },
+    {
+      "name": "invalid-nonce-negative-sign",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "-1",
+      "prior_nonces": [],
+      "expect_valid": false,
+      "expect_reason_contains": "1..19 decimal digits"
+    },
+    {
+      "name": "invalid-nonce-fully-non-digit",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "abc",
+      "prior_nonces": [],
+      "expect_valid": false,
+      "expect_reason_contains": "1..19 decimal digits"
+    },
+    {
+      "name": "invalid-nonce-mixed-digit-and-letter",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "12a3",
+      "prior_nonces": [],
+      "expect_valid": false,
+      "expect_reason_contains": "1..19 decimal digits"
+    },
+    {
+      "name": "invalid-nonce-20-digits-too-long",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "10000000000000000000",
+      "prior_nonces": [],
+      "expect_valid": false,
+      "expect_reason_contains": "1..19 decimal digits"
+    },
+    {
+      "name": "invalid-nonce-decimal-point",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "12.3",
+      "prior_nonces": [],
+      "expect_valid": false,
+      "expect_reason_contains": "1..19 decimal digits"
+    },
+    {
+      "name": "invalid-nonce-whitespace-prefix",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": " 1",
+      "prior_nonces": [],
+      "expect_valid": false,
+      "expect_reason_contains": "1..19 decimal digits"
+    },
+    {
+      "name": "invalid-replay-exact-same-nonce",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "1700000000005",
+      "prior_nonces": [
+        [
+          "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+          "lobby",
+          "1700000000005"
+        ]
+      ],
+      "expect_valid": false,
+      "expect_reason_contains": "not strictly greater"
+    },
+    {
+      "name": "invalid-replay-decreasing-nonce",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "69",
+      "prior_nonces": [
+        [
+          "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+          "lobby",
+          "70"
+        ]
+      ],
+      "expect_valid": false,
+      "expect_reason_contains": "not strictly greater"
+    },
+    {
+      "name": "invalid-replay-different-did-same-nonce-blocked-by-its-own-pair",
+      "did": "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+      "room": "lobby",
+      "nonce": "50",
+      "prior_nonces": [
+        [
+          "did:key:z6MktRatCodGsWpzsiwFZPtn2nmu4qAGLk7aCCosb9HKuWYZ",
+          "lobby",
+          "50"
+        ]
+      ],
+      "expect_valid": false,
+      "expect_reason_contains": "not strictly greater"
+    }
+  ]
+}

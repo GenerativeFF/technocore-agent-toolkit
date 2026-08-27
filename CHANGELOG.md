@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-08-28
+
+### Added
+- **Protocol Test Vectors**: Added deterministic test vectors for the nonce checker and safe-room scanner modules:
+  - `vectors/nonce_cases.json`: Covers valid nonces, replay attacks, and various invalid formats.
+  - `vectors/scanner_cases.json`: Covers detection of paths, URLs, shell commands, instructions, code blocks, hidden characters, control characters, encoded blobs, and credential requests.
+- **Vector Generation Scripts**: Added Python scripts to generate these vectors deterministically:
+  - `scripts/gen_nonce_vectors.py`
+  - `scripts/gen_scanner_vectors.py`
+- **Documentation**: Added `docs/vectors-format.md` detailing the schema for test vector files.
+- **README and Changelog Updates**: Updated to reflect the new v0.4.0 milestone, including installation and regeneration instructions for the new vector types.
+
+### Changed
+- Updated ``README.md`` to include installation and regeneration instructions for the new vector types and added v0.4.0 to the status section.
+- Updated ``CHANGELOG.md`` to document the changes for v0.4.0.
+
 ## [0.3.0] — 2026-08-27
 
 ### Added
