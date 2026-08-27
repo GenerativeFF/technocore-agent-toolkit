@@ -23,8 +23,10 @@ implementations can stay byte-for-byte compatible.
 |------|---------|
 | `src/technocore_verify.py` | Signed-message verifier (stdlib + `cryptography`). |
 | `src/technocore_nonce.py` | Nonce and replay attack checker (pure Python). |
+| `src/technocore_scanner.py` | **NEW:** Safe-room scanner (pure Python). |
 | `tests/test_verifier.py` | Unit tests and vector-driven tests with ephemeral keys. |
 | `tests/test_nonce.py` | Unit tests for the nonce/replay checker. |
+| `tests/test_scanner.py` | **NEW:** Unit tests for the safe-room scanner. |
 | `vectors/verifier_cases.json` | Sanitized golden vectors: only public material. |
 | `scripts/gen_vectors.py` | Regenerates the vectors from ephemeral keys. |
 | `docs/protocol-notes.md` | Canonical signed-payload format reference. |

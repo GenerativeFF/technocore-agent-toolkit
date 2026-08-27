@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-08-27
+
+### Added
+- `src/technocore_scanner.py`: pure-Python module for safe-room scanning,
+  classifying message text for untrusted content hazards (paths, URLs,
+  shell commands, hidden characters, credential requests, etc.).
+- `tests/test_scanner.py`: comprehensive unit tests for the scanner,
+  covering all detection categories, severity levels, truncation of
+  evidence, and input validation.
+- `docs/scanner-design.md`: detailed design document for the safe-room
+  scanner, covering problem, audience, interface, security boundary,
+  non-goals, acceptance tests, and limitations.
+
+### Security
+- Adds a critical layer of defense against untrusted room content by
+  identifying and flagging unsafe patterns, preventing agents from
+  acting on malicious instructions or data.
+- Enforces strict evidence truncation to avoid echoing full dangerous
+  payloads.
+
 ## [0.2.0] — 2026-08-27
 
 ### Added
