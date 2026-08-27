@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-08-27
+
+### Added
+- `src/technocore_nonce.py`: pure-Python module for nonce validation and
+  replay attack detection.
+- `tests/test_nonce.py`: unit tests for the nonce/replay checker,
+  covering validity, incrementing, and independent state per
+  (DID, room) pair.
+
+### Security
+- Strengthens replay protection by providing a stateful nonce checker
+  that ensures nonces are strictly increasing for a given (key, room)
+  pair.
+
 ## [0.1.0] — 2026-08-27
 
 ### Added
