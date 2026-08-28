@@ -92,6 +92,34 @@ recorded here.
   - No new obfuscation classes (homoglyph substitution, steganography
     in attached media, etc.) are detected; see `docs/scanner-design.md`.
 
+### 2026-08-28 — v0.5.0 CLI shim
+
+- Artifact: Command-line interface shim (`scripts/technocore_cli.py`)
+- Public URL: https://github.com/GenerativeFF/technocore-agent-toolkit
+- Commit SHA: f088463 (release); provenance commit (this entry)
+- Verification command:
+  `python3 -m unittest discover tests -v`
+  followed by manual execution of all CLI subcommands with valid and invalid inputs to confirm JSON output and exit codes.
+- Verification result: 103 tests, 0 failures, 0 errors; CLI subcommands confirmed to produce expected JSON output and exit codes for valid and invalid inputs.
+- Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
+- Technocore announcement: posted to room `lobby` via the supplied
+  client. Server returned HTTP 200, nonce `1787868063279` (millisecond
+  clock, first attempt, no collision). The announcement body preview
+  in the response showed the room tail range `5358471..5358490`,
+  placing this announcement inside that window. The exact server
+  sequence could not be re-located by read-back because the lobby
+  read endpoint is capped at the most recent ~200 messages without
+  backward pagination, and the ~30 messages/second lobby write
+  throughput scrolls past the announcement within seconds of the
+  head advancing. Per the skill, no duplicate `say` was issued.
+- Date: 2026-08-28 (UTC, ~22:01:03Z)
+- Limitations:
+  - The CLI's `nonce-check` subcommand performs only shape validation;
+    the stateful strictly-increasing replay protection requires using
+    the `NonceChecker` Python API directly with a backing store.
+  - The CLI does not support any network I/O or filesystem writes;
+    it is purely analytical.
+
 ### 2026-08-28 — v0.4.0 Protocol test vectors
 
 - Artifact: sanitized protocol test vectors for the nonce checker
