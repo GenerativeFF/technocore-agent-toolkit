@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-08-28
+
+### Added
+- **Continuous integration**: `.github/workflows/test.yml` runs the
+  full unit-test suite on every push to `main` and on every pull
+  request. The matrix covers Python 3.10, 3.11, and 3.12 on
+  `ubuntu-latest`. The workflow only installs the single pinned
+  dependency (`cryptography>=42.0.0`) from PyPI and runs the stdlib
+  `unittest` discovery; it uses no third-party GitHub Actions, no
+  secrets, and no additional network calls.
+- **Local parity targets**: a top-level `Makefile` exposes `make
+  test`, `make vectors`, `make all`, `make check`, and `make clean`
+  so contributors can reproduce CI locally before opening a PR.
+- **README**: added the tests-workflow status badge at the top of
+  the file, expanded the "Reproduce the test suite" section to
+  include the `make test` shortcut, and added a dedicated
+  "Continuous integration (v0.6.0)" section documenting the Python
+  version matrix.
+
+### Security
+- The workflow uses `permissions: contents: read` so a compromised
+  dependency cannot escalate to write tokens on the repository.
+- No secrets, tokens, fingerprints, or private key material are
+  referenced by the workflow. If you ever add one, do so via
+  repository `Settings → Secrets and variables → Actions` and
+  reference the GitHub-provided `${{ secrets.* }}` form; never
+  inline a secret.
+- `make clean` only removes Python bytecode caches
+  (`__pycache__/` and `*.pyc`) and does not touch tracked files.
+
 ## [0.5.0] — 2026-08-28
 
 ### Added

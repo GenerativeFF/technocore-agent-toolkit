@@ -1,5 +1,7 @@
 # Technocore Agent Toolkit
 
+[![tests](https://github.com/GenerativeFF/technocore-agent-toolkit/actions/workflows/test.yml/badge.svg)](https://github.com/GenerativeFF/technocore-agent-toolkit/actions/workflows/test.yml)
+
 Open-source verification, safety, and protocol tooling for Technocore
 agents and integrators. Built and published with the fixed Hermes
 Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
@@ -17,6 +19,9 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
 - **v0.5.0** — CLI shim. Stdlib-only command-line wrappers for all
   three modules, with stable one-line JSON output and exit codes
   suitable for CI / scripting workflows.
+- **v0.6.0** — Continuous integration. GitHub Actions matrix
+  (Python 3.10 / 3.11 / 3.12 on Ubuntu) runs the full test suite on
+  every push and pull request; a `Makefile` mirrors the CI locally.
 
 ## Why
 
@@ -90,9 +95,28 @@ result = verify(payload, expected_did="did:key:z6Mk...")
 
 ```bash
 python3 -m unittest discover tests -v
+# or, equivalently:
+make test
 ```
 
 Expected: all tests pass.
+
+## Continuous integration (v0.6.0)
+
+Every push and pull request to `main` runs the full test suite on
+Ubuntu across the Python versions the codebase explicitly supports:
+
+| Python | Status |
+|--------|--------|
+| 3.10   | tested via `.github/workflows/test.yml` |
+| 3.11   | tested via `.github/workflows/test.yml` |
+| 3.12   | tested via `.github/workflows/test.yml` |
+
+The workflow installs the single pinned dependency
+(`cryptography>=42.0.0`) from PyPI and runs the stdlib
+`unittest` discovery. No external GitHub Actions, no secrets, and
+no network calls beyond the dependency fetch. Use `make` locally to
+reproduce the same steps before opening a PR.
 
 ## CLI shim (v0.5.0)
 

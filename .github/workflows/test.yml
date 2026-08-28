@@ -1,0 +1,56 @@
+# Continuous integration for technocore-agent-toolkit.
+#
+# Runs the full test suite on every push and pull request. The
+# matrix covers the Python versions the project explicitly supports
+# (3.10, 3.11, 3.12). No external actions or secrets are required:
+# this workflow only installs the project's pinned dependency
+# (`cryptography>=42.0.0`) from PyPI and runs the stdlib unittest
+# discovery.
+#
+# If you change the supported Python versions, update the
+# `python-version` matrix below and the "Python compatibility"
+# note in `README.md` in the same commit.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: python ${{ matrix.python-version }} on ubuntu
+    runs-on: ubuntu-latest
+    strategy:
+      # Don't cancel sibling jobs when one fails — every matrix entry
+      # is independent evidence that the suite passes on a given
+      # Python version.
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Show interpreter
+        run: |
+          python3 --version
+          python3 -c "import sys; print(sys.version)"
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: |
+          python3 -m unittest discover tests -v
