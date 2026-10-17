@@ -14,7 +14,9 @@ Per the supplied Hermes Technocore client and protocol notes:
 
 where ``text`` has had a single-pass control-character sweep applied
 (replace U+0000..U+001F, U+007F..U+009F, U+200B..U+200F, U+202A..U+202E
-with U+0020). ``nonce`` is the decimal string used at sign time.
+with U+0020). The sweep lives in :mod:`technocore_sweep`; this
+module imports it so the verifier and any third-party signer share
+exactly one rule. ``nonce`` is the decimal string used at sign time.
 The signature is Ed25519 over ``payload_bytes`` and is encoded as
 unpadded base64url. The DID format is ``did:key:z`` followed by the
 base58btc encoding of the multicodec prefix ``0xed 0x01`` concatenated
@@ -46,20 +48,13 @@ from typing import Mapping, Optional
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from src.technocore_sweep import sweep  # noqa: E402  canonical sweep source
+
 # Multicodec prefix for ed25519-pub (0xed 0x01).
 _ED25519_PUB_MULTICODEC = b"\xed\x01"
 
 # Base58btc alphabet (Bitcoin/IPFS order).
 _B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-
-# Sweep ranges mirrored from the supplied client's ``sweep`` function.
-# Replaced with U+0020 (space) before canonicalization.
-_SWEEP_RANGES: tuple[tuple[int, int], ...] = (
-    (0x0000, 0x0020),  # C0 controls + space
-    (0x007F, 0x00A0),  # DEL + C1 controls
-    (0x200B, 0x2010),  # zero-width and friends
-    (0x202A, 0x202F),  # bidirectional controls
-)
 
 
 class VerifierError(ValueError):
@@ -91,25 +86,7 @@ class VerifyResult:
     canonical_sha256: Optional[str]
 
 
-def sweep(text: str) -> str:
-    """Apply the protocol's single-pass control-character sweep.
 
-    Mirrors ``sweep`` in the supplied Hermes client so that verifiers
-    agree with signers on the canonical byte representation of
-    ``text``. The replacement is always U+0020 (space).
-    """
-    out = []
-    for ch in text:
-        o = ord(ch)
-        replaced = False
-        for lo, hi in _SWEEP_RANGES:
-            if lo <= o < hi:
-                out.append(" ")
-                replaced = True
-                break
-        if not replaced:
-            out.append(ch)
-    return "".join(out)
 
 
 def _b64url_decode(data: str) -> bytes:

@@ -5,6 +5,55 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-10-17
+
+### Added
+- `src/technocore_sweep.py`: public, reference implementation of the
+  protocol's single-pass control-character sweep. Pure Python,
+  stdlib-only, no network I/O, no subprocess, no decoding. Exposes:
+  - `sweep(text)` — returns the post-sweep string.
+  - `sweep_report(text)` — returns a `SweepReport` with the post-sweep
+    string, the count of replaced codepoints, and the distinct
+    set of replaced codepoints.
+  - `expected_replacements(text)` — returns `(count, distinct_set)`
+    without allocating the swept string.
+  - `SWEEP_RANGES` — the four documented inclusive-lower,
+    exclusive-upper codepoint ranges.
+  - `SweepError` — raised for non-string input.
+- `tests/test_sweep.py`: 37 unit tests covering the four documented
+  ranges, boundary codepoints (first in, one past the upper bound),
+  preserved ranges (U+0020, U+00A0, U+2010, U+202F, CJK, emoji,
+  combining marks, Latin ligatures), length preservation, idempotence
+  (`sweep(sweep(x)) == sweep(x)`), determinism, strict input
+  validation, parity with `technocore_verify.sweep` and with the
+  supplied Hermes client sweep, and the `sweep + canonical join`
+  contract against `technocore_verify.canonical_bytes`.
+
+### Changed
+- `src/technocore_verify.py`: now imports the sweep from
+  `technocore_sweep` so the verifier and any third-party signer share
+  exactly one rule. The verifier's behaviour is byte-for-byte
+  unchanged; the full unit and vector test suites still pass.
+- `scripts/technocore_cli.py`: the in-script `sys.path` setup now
+  adds both the repository root and `src/` to the path so the
+  project's cross-module `from src.X import ...` imports resolve
+  when the CLI is invoked directly as a subprocess.
+- `docs/protocol-notes.md`: the "Sweep rules" section now points at
+  `src/technocore_sweep.py` as the single source of truth and
+  cross-references the `tests/test_sweep.py` range coverage.
+- `README.md`: status block, table of contents, and "Quickstart"
+  updated to reference the sweep module.
+
+### Security
+- The sweep module is a pure function over its string input. It
+  performs no network I/O, no filesystem I/O beyond the input
+  string, no subprocess execution, no URL resolution, no DNS lookup,
+  no fetching, and no decoding of the input.
+- `SweepReport` exposes a *count* and a *set* of replaced
+  codepoints, not the full original text. Callers that need to log
+  the replaced content must do so on a trusted channel with the
+  original input they supplied.
+
 ## [0.6.0] — 2026-08-28
 
 ### Added

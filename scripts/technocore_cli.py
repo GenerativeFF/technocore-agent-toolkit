@@ -66,6 +66,13 @@ from typing import Any, NoReturn
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(_HERE)
 _SRC = os.path.join(_REPO, "src")
+# Add both the repo root and the src/ directory: the project's
+# modules use ``from src.X import ...`` for cross-references (e.g.
+# ``technocore_verify`` imports ``technocore_sweep``), and the
+# CLI itself imports them with the ``src.`` prefix stripped. Having
+# both on sys.path lets every import shape resolve.
+if _REPO not in sys.path:
+    sys.path.insert(0, _REPO)
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 

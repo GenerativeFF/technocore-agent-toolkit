@@ -45,6 +45,15 @@ character is always U+0020 (space). Code points outside these ranges
 (including U+0020 itself, U+00A0 NBSP, and all of CJK / emoji planes)
 are preserved as-is.
 
+The single source of truth for this rule is
+[`src/technocore_sweep.py`](../src/technocore_sweep.py) (added in
+v0.7.0). `technocore_verify.canonical_bytes` imports the sweep from
+that module, so any future change to the rule set is a single-file
+edit. Independent implementations are encouraged to depend on
+`technocore_sweep` rather than re-implement the ranges; the
+`tests/test_sweep.py` suite verifies every codepoint in every range
+and every boundary codepoint outside the ranges.
+
 ## Nonce rules
 
 - 1 to 19 decimal digits.

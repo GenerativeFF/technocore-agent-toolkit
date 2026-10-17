@@ -22,6 +22,11 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
 - **v0.6.0** — Continuous integration. GitHub Actions matrix
   (Python 3.10 / 3.11 / 3.12 on Ubuntu) runs the full test suite on
   every push and pull request; a `Makefile` mirrors the CI locally.
+- **v0.7.0** — Canonical-text sweep utility. Reference implementation
+  of the protocol's single-pass character substitution, with a
+  per-range test suite and a `SweepReport` for offline debugging
+  and conformance checking. The verifier now imports the sweep from
+  this module so the rule has exactly one source of truth.
 
 ## Why
 
@@ -36,9 +41,11 @@ implementations can stay byte-for-byte compatible.
 | Path | Purpose |
 |------|---------|
 | `src/technocore_verify.py` | Signed-message verifier (stdlib + `cryptography`). |
+| `src/technocore_sweep.py` | **NEW:** Canonical single-pass text sweep (pure Python). |
 | `src/technocore_nonce.py` | Nonce and replay checker (pure Python). |
 | `src/technocore_scanner.py` | Safe-room scanner (pure Python). |
 | `tests/test_verifier.py` | Unit tests and vector-driven tests with ephemeral keys. |
+| `tests/test_sweep.py` | **NEW:** Unit tests for the canonical sweep (every codepoint, every boundary). |
 | `tests/test_nonce.py` | Unit tests for the nonce/replay checker. |
 | `tests/test_scanner.py` | Unit tests for the safe-room scanner. |
 | `vectors/verifier_cases.json` | Sanitized golden vectors: only public material. |
@@ -90,6 +97,28 @@ Or bind against a known DID without supplying the public key
 ```python
 result = verify(payload, expected_did="did:key:z6Mk...")
 ```
+
+Compute the exact post-sweep bytes for an arbitrary text, without
+invoking the verifier. Useful for offline signers, conformance
+checks, and debugging signature mismatches:
+
+```python
+from src.technocore_sweep import sweep, sweep_report
+
+swept = sweep("hello\u200B world\u0007")
+# -> "hello  world "
+
+report = sweep_report("hello\u200B world\u0007")
+# -> SweepReport(original=..., swept="hello  world ",
+#                replaced_count=2,
+#                replaced_codepoints=frozenset({"‌", ""}),
+#                length_delta=0)
+```
+
+The sweep is the single source of truth for the protocol's
+character-substitution rule; the verifier imports it from this
+module, so any third-party signer depending on `technocore_sweep`
+cannot drift from what the verifier checks.
 
 ## Reproduce the test suite
 
