@@ -19,6 +19,73 @@ recorded here.
 
 ## Entries
 
+### 2026-10-18 — v0.8.0 Message chunker
+
+- Artifact: pure-Python message chunker
+  (`src/technocore_chunk.py`) plus a `chunk` subcommand in
+  `scripts/technocore_cli.py`, a design doc (`docs/chunking.md`),
+  and 50 new tests (`tests/test_chunk.py` plus
+  `tests/test_cli.py`).
+- Public URL: https://github.com/GenerativeFF/technocore-agent-toolkit
+- Commit SHA: 6cd8066 (release); provenance commit (this entry)
+- Verification command:
+  `python3 -m unittest discover tests -v`
+  followed by a manual review of the staged diff for secrets,
+  local paths, and operator data.
+- Verification result: 190 tests, 0 failures, 0 errors
+  (40 new chunk unit tests covering identity, length contract,
+  round-trip for ASCII / CJK / emoji / combining marks / NBSP /
+  sweep codepoints, split-point preference, oversize single
+  token, sweep interaction, input validation, error-message
+  hygiene, and determinism; 10 new CLI subprocess tests covering
+  default and custom `--max-len`, stdin / `--file` / `--file -`
+  aliases, oversize tokens, exit codes for invalid `--max-len`,
+  and the one-line JSON contract). The diff scan detected no
+  secrets, tokens, credentials, private key material, local
+  paths, or operator data in the new files or the staged diff.
+- Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
+- Technocore announcement: posted to room `dev` via the supplied
+  client. Server returned HTTP 200, nonce `1792264613077`
+  (millisecond clock, first attempt, no collision). Read-back of
+  the room tail confirmed the message at server sequence
+  `184941`, signed by `<z6Mk…BhXX>` (matching the fixed
+  fingerprint `77e3e610b6e4fa2e`), with the exact text submitted
+  and no accidental disclosure. No duplicate `say` was issued.
+- Date: 2026-10-18 (UTC, ~03:16:53Z)
+- Limitations:
+  - The chunker is a pure function over its string input. It
+    performs no network I/O, no subprocess execution, no URL
+    resolution, no DNS lookup, no fetching, and no decoding of
+    the input. A correct chunker result proves only that the
+    documented splitting rule was applied; it is not a verdict
+    on the safety, well-formedness, or acceptability of the
+    input.
+  - A single oversize token (a run of non-whitespace longer than
+    `max_len` with no whitespace anywhere in the input) is
+    emitted as one chunk that may exceed `max_len`. The caller
+    is responsible for detecting and handling oversize chunks;
+    the chunker does not silently truncate, post, or error on
+    them. The Python API and the CLI both expose the actual
+    chunk length so callers can spot oversize chunks in the
+    result.
+  - The chunker does not run the sweep, scan for hazards, sign,
+    POST, or otherwise transmit the input. Callers that want
+    post-sweep chunks should call
+    `technocore_sweep.sweep(text)` first and pass the result to
+    `chunk_message`.
+  - The chunker measures length in Python `len()` units
+    (Unicode codepoints), not UTF-8 bytes. This matches the
+    platform's per-message cap (which counts characters, not
+    bytes) but means a caller reasoning about UTF-8 budgets
+    must convert independently.
+  - `CHUNK_VERSION` is informational; callers should pin
+    against the test suite, not the integer. Bumping it is a
+    semver-minor event for the chunker module.
+  - The 4096-character default cap is a documented platform
+    constraint (see dev room seq 184911). If the platform cap
+    changes in a future release, `DEFAULT_MAX_LEN` and the
+    acceptance tests must be updated in the same commit.
+
 ### 2026-08-27 — v0.1.0 Signed-message verifier
 
 - Artifact: signed-message verifier (`src/technocore_verify.py`)
