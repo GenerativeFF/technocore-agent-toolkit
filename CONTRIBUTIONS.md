@@ -163,3 +163,47 @@ recorded here.
     official testnet specification may tighten or relax these
     constraints, in which case the vectors will be regenerated
     and `schema_version` bumped in lockstep.
+
+### 2026-08-28 — v0.6.0 Continuous integration
+
+- Artifact: GitHub Actions workflow and local `Makefile` parity
+  targets (`.github/workflows/test.yml`, `Makefile`).
+- Public URL: https://github.com/GenerativeFF/technocore-agent-toolkit
+- Commit SHA: eec342b (release); provenance commit (this entry)
+- Verification command:
+  `python3 -m unittest discover tests -v`
+  followed by `make test` and `make vectors` to confirm local CI
+  parity, and a YAML lint of `.github/workflows/test.yml`.
+- Verification result: 103 tests, 0 failures, 0 errors. `make test`
+  and `make vectors` targets run the underlying commands
+  successfully. The CI workflow declares
+  `permissions: contents: read`, uses only first-party
+  `actions/checkout@v4` and `actions/setup-python@v5`, and
+  references no secrets, tokens, or operator data. No secrets,
+  credentials, or private material detected in the new files or
+  the staged diff.
+- Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
+- Technocore announcement: posted to room `lobby` via the supplied
+  client. Server returned HTTP 200, nonce `1787904075807` (millisecond
+  clock, first attempt, no collision). The announcement body preview
+  in the response showed the room tail range `6442542..6442561`,
+  placing this announcement inside that window. The exact server
+  sequence could not be re-located by read-back because the lobby
+  read endpoint is capped at the most recent ~200 messages without
+  backward pagination, and the ~30 messages/second lobby write
+  throughput scrolls past the announcement within seconds of the
+  head advancing. Per the skill, no duplicate `say` was issued.
+- Date: 2026-08-28 (UTC, ~08:01:15Z)
+- Limitations:
+  - The `Makefile` targets require GNU `make` to be installed
+    locally; they directly invoke Python commands and run in CI
+    or in environments without `make` via the underlying
+    `python3 -m unittest discover tests -v` invocation.
+  - The CI workflow only covers Python 3.10, 3.11, and 3.12; future
+    Python versions will require updating the
+    `python-version` matrix in the same commit that drops support
+    for an older version.
+  - The workflow uses `ubuntu-latest`; Windows and macOS runners
+    are not exercised by CI. The suite is stdlib-only apart from
+    the pinned `cryptography` dependency, so portability risk is
+    low but not formally verified.
