@@ -31,6 +31,17 @@ ordering state is process-local; pair this command with the
     python3 scripts/technocore_cli.py nonce-check \\
         --did DID --room ROOM --nonce NONCE
 
+``chunk`` — split a text payload into pieces, each no longer than
+``--max-len`` codepoints. Useful for posting long messages that
+exceed the documented per-message size cap. Emits one JSON object
+on stdout with the chunk count, the requested ``max_len``, the
+default ``max_len``, the contract ``version``, and an ordered list
+of ``{index, length, text}`` objects. The chunker is a pure
+function: it does not sign, POST, or otherwise transmit the text.
+
+    python3 scripts/technocore_cli.py chunk [--max-len N] [--file PATH]
+    # text is read from PATH, or from stdin when PATH is omitted.
+
 Output
 ------
 
@@ -77,6 +88,12 @@ if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
 # pylint: disable=wrong-import-position
+from technocore_chunk import (  # noqa: E402
+    CHUNK_VERSION as CHUNKER_CHUNK_VERSION,
+    DEFAULT_MAX_LEN as CHUNKER_DEFAULT_MAX_LEN,
+    ChunkError,
+    chunk_message,
+)
 from technocore_nonce import NonceCheckResult, NonceChecker  # noqa: E402
 from technocore_scanner import ScanError, ScanResult, scan as scanner_scan  # noqa: E402
 from technocore_verify import (  # noqa: E402
@@ -190,6 +207,27 @@ def _result_to_dict_nonce(result: NonceCheckResult) -> dict[str, Any]:
     }
 
 
+def _result_to_dict_chunk(chunks: list[str], max_len: int) -> dict[str, Any]:
+    """Convert a chunker output to a JSON-friendly dict.
+
+    Each chunk's length is reported alongside the chunk itself so a
+    caller can spot oversize chunks (single tokens longer than
+    ``max_len``) without having to recount codepoints. The list of
+    chunks is emitted in original order; the round-trip property
+    means ``"".join(chunks) == text`` for every legal input.
+    """
+    return {
+        "chunk_count": len(chunks),
+        "max_len": int(max_len),
+        "default_max_len": int(CHUNKER_DEFAULT_MAX_LEN),
+        "version": int(CHUNKER_CHUNK_VERSION),
+        "chunks": [
+            {"index": idx, "length": len(c), "text": c}
+            for idx, c in enumerate(chunks)
+        ],
+    }
+
+
 def cmd_scan(args: argparse.Namespace) -> NoReturn:
     text = _read_text_arg(args, attr="file")
     try:
@@ -251,6 +289,30 @@ def cmd_nonce_check(args: argparse.Namespace) -> NoReturn:
             "ok": True,
             "command": "nonce-check",
             "result": _result_to_dict_nonce(result),
+        }
+    )
+
+
+def cmd_chunk(args: argparse.Namespace) -> NoReturn:
+    # ``--max-len`` is parsed by ``type=int`` so a non-int input
+    # already exits 2 with an argparse error before we get here;
+    # we still defensively guard against ``bool`` and non-positive
+    # values so the CLI matches the Python API's error surface.
+    max_len = args.max_len
+    if isinstance(max_len, bool) or not isinstance(max_len, int):
+        _fail("--max-len must be an int", 2)
+    if max_len <= 0:
+        _fail("--max-len must be a positive integer", 2)
+    text = _read_text_arg(args, attr="file")
+    try:
+        chunks = chunk_message(text, max_len=max_len)
+    except ChunkError as exc:
+        _fail(f"chunk failed: {exc}", 3)
+    _emit(
+        {
+            "ok": True,
+            "command": "chunk",
+            "result": _result_to_dict_chunk(chunks, max_len),
         }
     )
 
@@ -322,6 +384,35 @@ def _build_parser() -> argparse.ArgumentParser:
     p_nonce.add_argument("--room", required=True, help="Room slug.")
     p_nonce.add_argument("--nonce", required=True, help="Nonce string to check.")
     p_nonce.set_defaults(func=cmd_nonce_check)
+
+    p_chunk = sub.add_parser(
+        "chunk",
+        help=(
+            "Split a text payload into pieces, each no longer than "
+            "--max-len codepoints. Useful for posting long messages "
+            "that exceed the documented per-message size cap."
+        ),
+    )
+    p_chunk.add_argument(
+        "--file",
+        "-f",
+        default=None,
+        help=(
+            "Path to a UTF-8 text file. If omitted or set to '-', "
+            "the text is read from stdin."
+        ),
+    )
+    p_chunk.add_argument(
+        "--max-len",
+        type=int,
+        default=CHUNKER_DEFAULT_MAX_LEN,
+        help=(
+            "Maximum chunk length, measured in Python ``len()`` units "
+            "(Unicode codepoints). Must be a positive integer. "
+            f"Defaults to {CHUNKER_DEFAULT_MAX_LEN}."
+        ),
+    )
+    p_chunk.set_defaults(func=cmd_chunk)
 
     return parser
 

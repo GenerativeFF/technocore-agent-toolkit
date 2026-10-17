@@ -63,9 +63,10 @@ class HelpTests(unittest.TestCase):
         self.assertIn("scan", out)
         self.assertIn("verify", out)
         self.assertIn("nonce-check", out)
+        self.assertIn("chunk", out)
 
     def test_subcommand_help_exits_zero(self):
-        for sub in ("scan", "verify", "nonce-check"):
+        for sub in ("scan", "verify", "nonce-check", "chunk"):
             with self.subTest(sub=sub):
                 rc, out, _ = _run([sub, "--help"])
                 self.assertEqual(rc, 0, msg=out)
@@ -408,6 +409,122 @@ class OutputShapeTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(out.count("\n"), 1)
         json.loads(out)
+
+    def test_chunk_emits_single_line_json(self):
+        rc, out, _ = _run(
+            ["chunk", "--max-len", "10"],
+            stdin_text="hello   world   foo   bar   baz\n",
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.count("\n"), 1)
+        json.loads(out)
+
+
+class ChunkCommandTests(unittest.TestCase):
+    """Subprocess tests for the ``chunk`` subcommand (v0.8.0)."""
+
+    def test_chunk_default_max_len_is_documented_cap(self):
+        # When --max-len is omitted, the CLI uses the documented
+        # 4096-character per-message cap and echoes it back in the
+        # ``default_max_len`` and ``max_len`` fields of the result.
+        rc, out, err = _run(["chunk"], stdin_text="hello world")
+        self.assertEqual(rc, 0, msg=err)
+        payload = _parse_stdout_line(out)
+        self.assertEqual(payload["command"], "chunk")
+        result = payload["result"]
+        self.assertEqual(result["max_len"], 4096)
+        self.assertEqual(result["default_max_len"], 4096)
+        self.assertEqual(result["version"], 1)
+        self.assertEqual(result["chunk_count"], 1)
+        self.assertEqual(result["chunks"][0]["text"], "hello world")
+        self.assertEqual(result["chunks"][0]["length"], 11)
+        self.assertEqual(result["chunks"][0]["index"], 0)
+
+    def test_chunk_custom_max_len_from_stdin(self):
+        rc, out, err = _run(
+            ["chunk", "--max-len", "10"],
+            stdin_text="hello   world   foo   bar   baz",
+        )
+        self.assertEqual(rc, 0, msg=err)
+        payload = _parse_stdout_line(out)
+        result = payload["result"]
+        self.assertEqual(result["max_len"], 10)
+        self.assertEqual(result["chunk_count"], 4)
+        for idx, c in enumerate(result["chunks"]):
+            self.assertEqual(c["index"], idx)
+            self.assertEqual(c["length"], len(c["text"]))
+            self.assertLessEqual(c["length"], 10)
+
+    def test_chunk_round_trip_in_output(self):
+        text = "alpha beta gamma delta epsilon " * 200
+        rc, out, err = _run(["chunk", "--max-len", "64"], stdin_text=text)
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        joined = "".join(c["text"] for c in result["chunks"])
+        self.assertEqual(joined, text)
+
+    def test_chunk_from_file(self):
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as fh:
+            fh.write("alpha   beta   gamma   delta   epsilon   zeta")
+            path = fh.name
+        try:
+            rc, out, err = _run(
+                ["chunk", "--file", path, "--max-len", "10"]
+            )
+            self.assertEqual(rc, 0, msg=err)
+            result = _parse_stdout_line(out)["result"]
+            self.assertGreaterEqual(result["chunk_count"], 2)
+            joined = "".join(c["text"] for c in result["chunks"])
+            self.assertEqual(joined, "alpha   beta   gamma   delta   epsilon   zeta")
+        finally:
+            os.unlink(path)
+
+    def test_chunk_stdin_dash_alias(self):
+        rc, out, err = _run(
+            ["chunk", "--file", "-", "--max-len", "5"],
+            stdin_text="a b c d e f g",
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        joined = "".join(c["text"] for c in result["chunks"])
+        self.assertEqual(joined, "a b c d e f g")
+
+    def test_chunk_oversize_token_is_reported(self):
+        # A single oversize token is emitted as one chunk; the CLI
+        # reports its actual length (which exceeds max_len) so the
+        # caller can decide what to do.
+        rc, out, err = _run(
+            ["chunk", "--max-len", "10"],
+            stdin_text="x" * 25,
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertEqual(result["chunk_count"], 1)
+        self.assertEqual(result["chunks"][0]["length"], 25)
+        self.assertEqual(result["chunks"][0]["text"], "x" * 25)
+
+    def test_chunk_zero_max_len_exits_two(self):
+        rc, _, err = _run(["chunk", "--max-len", "0"], stdin_text="hi")
+        self.assertEqual(rc, 2)
+        err_payload = _parse_stderr_line(err)
+        self.assertEqual(err_payload["ok"], False)
+        self.assertIn("positive", err_payload["error"])
+
+    def test_chunk_negative_max_len_exits_two(self):
+        rc, _, err = _run(["chunk", "--max-len", "-5"], stdin_text="hi")
+        self.assertEqual(rc, 2)
+        err_payload = _parse_stderr_line(err)
+        self.assertEqual(err_payload["ok"], False)
+
+    def test_chunk_non_int_max_len_exits_nonzero(self):
+        # ``--max-len abc`` is rejected by argparse as a non-int
+        # before the subcommand runs, so the exit code is 2 (argparse
+        # default).
+        rc, _, err = _run(["chunk", "--max-len", "abc"], stdin_text="hi")
+        self.assertEqual(rc, 2)
+        self.assertIn("invalid int value", err)
 
 
 if __name__ == "__main__":

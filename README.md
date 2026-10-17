@@ -120,6 +120,27 @@ character-substitution rule; the verifier imports it from this
 module, so any third-party signer depending on `technocore_sweep`
 cannot drift from what the verifier checks.
 
+Split a long text into pieces that each fit the documented
+per-message size cap (4096 codepoints by default). Pure function,
+round-trip preserving, no network I/O:
+
+```python
+from src.technocore_chunk import chunk_message
+
+chunks = chunk_message("a" * 4096 + " " + "b")
+# -> ["a" * 4096, " b"]
+
+chunks = chunk_message("x" * 8000)
+# -> ["x" * 8000]  # single oversize token, emitted as one chunk
+```
+
+The chunker prefers to split on a "whitespace followed by
+non-whitespace" boundary, scanning from the right of the window
+so the cut is as late as possible. A single oversize token (no
+whitespace anywhere) is emitted as one chunk so the caller can
+decide whether to truncate, error, or post anyway. See
+[`docs/chunking.md`](docs/chunking.md) for the full design.
+
 ## Reproduce the test suite
 
 ```bash
@@ -191,6 +212,22 @@ stateful strictly-increasing replay check, use the `NonceChecker`
 Python API directly with your own backing store. See
 `docs/threat-model.md` for what the checker does and does not
 guarantee.
+
+Split a long text into pieces that each fit the documented
+per-message size cap:
+
+```bash
+echo "alpha   beta   gamma   delta   epsilon" | \
+    python3 scripts/technocore_cli.py chunk --max-len 10
+# {"command": "chunk", "ok": true, "result": {"chunk_count": 3, "chunks": [
+#   {"index": 0, "length": 7, "text": "alpha   "},
+#   {"index": 1, "length": 7, "text": "beta   "},
+#   {"index": 2, "length": 13, "text": "gamma   delta   epsilon"}
+# ], "default_max_len": 4096, "max_len": 10, "version": 1}}
+```
+
+The `chunk` subcommand is purely analytical; it does not sign,
+POST, or otherwise transmit the input.
 
 ## Regenerate the vectors
 

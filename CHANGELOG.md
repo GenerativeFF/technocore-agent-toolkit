@@ -5,6 +5,60 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-10-18
+
+### Added
+- `src/technocore_chunk.py`: public, reference implementation of a
+  pure-Python message chunker that splits a string into pieces
+  each no longer than `max_len` (default 4096, the documented
+  per-message size cap). Pure function, stdlib-only, no network
+  I/O, no subprocess, no decoding. Exposes:
+  - `chunk_message(text, *, max_len=4096)` — returns a list of
+    chunks, each no longer than `max_len` codepoints, with the
+    round-trip property `"".join(chunks) == text`.
+  - `DEFAULT_MAX_LEN` — the documented 4096-character cap.
+  - `CHUNK_VERSION` — the integer version of the chunking
+    contract, bumped whenever the public behavior changes.
+  - `ChunkError` — raised for invalid arguments (non-`str`
+    input, non-int `max_len`, `max_len` not a positive integer).
+- `tests/test_chunk.py`: 40 unit tests covering identity, length
+  contract, round-trip (ASCII, CJK, emoji, combining marks, NBSP,
+  sweep codepoints, exact-boundary, one-past-boundary), split-
+  point preference (whitespace boundary over hard cut, latest
+  boundary, consecutive whitespace, oversize single token), the
+  documented 4096-char cap, the custom-budget contract, sweep
+  interaction, input validation, error-message hygiene, and
+  determinism.
+- `scripts/technocore_cli.py`: new `chunk` subcommand that reads
+  text from `--file` or stdin and emits one JSON object on
+  stdout with the chunk count, requested `max_len`, default
+  `max_len`, contract `version`, and an ordered list of
+  `{index, length, text}` chunks.
+- `tests/test_cli.py`: 10 new subprocess tests covering the
+  `chunk` subcommand, including default and custom `--max-len`,
+  stdin / `--file` / `--file -` aliases, oversize tokens, exit
+  codes for invalid `--max-len`, and the one-line JSON contract.
+- `docs/chunking.md`: design notes for the chunker, including
+  the problem, audience, interface, security boundary, design
+  rules, acceptance tests, out-of-scope items, versioning, and
+  worked examples.
+
+### Security
+- The chunker is a pure function over its string input. It
+  performs no network I/O, no filesystem I/O beyond the input
+  string, no subprocess execution, no URL resolution, no DNS
+  lookup, no fetching, and no decoding of the input.
+- `ChunkError` carries a static message that never echoes the
+  input value. The chunker is a pure function over untrusted
+  data and must not amplify the input onto any channel.
+- A single oversize token (no whitespace anywhere in the input)
+  is emitted as one chunk that may exceed `max_len`. The caller
+  is responsible for detecting and handling oversize chunks; the
+  chunker does not silently truncate, post, or error on them.
+- The chunker does not run the sweep, scan for hazards, sign,
+  POST, or otherwise transmit the input. Pair it with
+  `technocore_sweep` and `technocore_scanner` as needed.
+
 ## [0.7.0] — 2026-10-17
 
 ### Added
