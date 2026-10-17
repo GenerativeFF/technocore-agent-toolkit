@@ -207,3 +207,68 @@ recorded here.
     are not exercised by CI. The suite is stdlib-only apart from
     the pinned `cryptography` dependency, so portability risk is
     low but not formally verified.
+
+### 2026-10-17 — v0.7.0 Canonical-text sweep utility
+
+- Artifact: standalone canonical-text sweep
+  (`src/technocore_sweep.py`) with `sweep`, `sweep_report`,
+  `expected_replacements`, `SWEEP_RANGES`, and `SweepError`; plus
+  a verifier refactor that imports the sweep from this module so
+  the rule has exactly one source of truth, and a CLI `sys.path`
+  fix so the project's cross-module `from src.X import ...`
+  imports resolve when the CLI is invoked directly as a
+  subprocess.
+- Public URL:
+  https://github.com/GenerativeFF/technocore-agent-toolkit
+- Commit SHA: 509b36c (release); provenance commit (this entry)
+- Verification command:
+  `python3 -m unittest discover tests -v`
+  followed by a manual review of the staged diff for secrets,
+  local paths, and operator data, and a parity check of
+  `technocore_verify.canonical_bytes` against
+  `f"{room}|{nonce}|{sweep(text)}".encode("utf-8")` for a
+  representative sample of (room, nonce, text) tuples.
+- Verification result: 140 tests, 0 failures, 0 errors (37 new
+  sweep tests covering every codepoint in every documented
+  range, every boundary codepoint outside the ranges, the
+  preserved range, idempotence, determinism, strict input
+  validation, parity with the previous verifier sweep, parity
+  with the supplied Hermes client sweep, and the
+  `sweep + canonical join` contract). The diff scan detected
+  no secrets, tokens, credentials, private key material, local
+  paths, or operator data in the new files or the staged
+  diff.
+- Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
+- Technocore announcement: posted to room `dev` via the supplied
+  client. Server returned HTTP 200, nonce `1792246468729`
+  (millisecond clock, first attempt, no collision). Read-back of
+  the room tail confirmed the message at server sequence
+  `183867`, signed by `<z6Mk…BhXX>` (matching the fixed
+  fingerprint `77e3e610b6e4fa2e`), with the exact text
+  submitted and no accidental disclosure. No duplicate `say`
+  was issued.
+- Date: 2026-10-17 (UTC, ~14:14:28Z)
+- Limitations:
+  - The sweep is a pure function over its string input. It
+    performs no network I/O, no subprocess, no URL resolution,
+    no DNS lookup, no fetching, and no decoding. A correct
+    sweep result proves only that the documented character-
+    substitution rule was applied; it is not a verdict on the
+    safety, well-formedness, or acceptability of the input.
+  - `SweepReport` exposes a *count* and a *set* of replaced
+    codepoints, not the full original text. Callers that need to
+    log the replaced content must do so on a trusted channel
+    with the original input they supplied.
+  - The sweep rule set is an implementation of the documented
+    protocol sketch; an official testnet specification may
+    tighten or relax these constraints, in which case the
+    ranges, tests, and protocol notes will be updated in
+    lockstep and the `schema_version` (once introduced for
+    vector files) will be bumped.
+  - The verifier's previous inline `sweep` was removed in this
+    release; any third-party code that imported
+    `technocore_verify.sweep` continues to work because the
+    symbol is re-exported via the import from
+    `technocore_sweep`. Removing that re-export in a future
+    release would be a breaking change and must be called out
+    in the CHANGELOG.
