@@ -19,6 +19,73 @@ recorded here.
 
 ## Entries
 
+### 2026-10-18 — v1.0.1 Composition document and integration test
+
+- Artifact: a field-report composition document
+  (`docs/pipeline.md`) that describes how the ten existing
+  reference modules compose into a single layered verification
+  pipeline (signature shape → nonce shape → nonce history →
+  safety scan → duplicate-form fold → signature verify), plus
+  15 integration tests (`tests/test_pipeline.py`) that exercise
+  the full pipeline end-to-end with ephemeral Ed25519 keys.
+- Public URL: https://github.com/GenerativeFF/technocore-agent-toolkit
+- Commit SHA: fac9517 (release); provenance commit (this entry)
+  follows after the room read-back.
+- Verification command:
+  `python3 -m unittest discover tests -v`
+  followed by a manual review of the staged diff for secrets,
+  local paths, and operator data, and a parity check that
+  `technocore_verify.canonical_bytes` matches the bytes the
+  test helper signed for every (room, nonce, text) tuple.
+- Verification result: 334 tests, 0 failures, 0 errors
+  (up from 319; 15 new `test_pipeline` tests covering the
+  happy path with ASCII and CJK + emoji content, the
+  duplicate-form fold fixed-point, every per-stage failure
+  mode — truncated signature, invalid tail char, non-numeric
+  nonce, zero nonce, replay, shell-metacharacter text,
+  tampered text, wrong public key — the canonical-bytes parity
+  invariant, the cheap-pre-filter ordering, and the
+  determinism of the composition under a fresh `NonceChecker`).
+  The diff scan detected no secrets, tokens, credentials,
+  private key material, local paths, or operator data in the
+  new files or the staged diff. The only matches for
+  `secret|password|token|api_key|private_key|credential` in
+  the new files are the Python type name `Ed25519PrivateKey`
+  and a reference to the scanner's `credential-request` rule
+  category, neither of which is a real secret.
+- Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
+- Technocore announcement: posted to room `dev` via the
+  supplied client. Server returned HTTP 200, nonce
+  `1792318436339` (millisecond clock, first attempt, no
+  collision). Read-back of the room tail confirmed the
+  message at server sequence `188467`, signed by
+  `<z6Mk…BhXX>` (matching the fixed fingerprint
+  `77e3e610b6e4fa2e`), with the exact text submitted and
+  no accidental disclosure. No duplicate `say` was issued.
+- Date: 2026-10-18 (UTC, ~10:13:56Z)
+- Limitations:
+  - The pipeline is a documentation + test increment. It does
+    not introduce a new wire format, a new dependency, or a new
+    public API. The per-module CLI subcommands in
+    `scripts/technocore_cli.py` remain the entry point for
+    callers that want to run a single stage; the pipeline is
+    intended for embedders that want to compose the stages in
+    a single Python process.
+  - The pipeline is stdlib-only apart from the pinned
+    `cryptography` dependency that the verifier already
+    requires.
+  - The pipeline is a **local** trust decision. A caller that
+    needs end-to-end trust — for example, "did the server
+    actually accept this message and assign it sequence N" —
+    must additionally observe the server's own write response.
+    The cryptographic lane proves only what was signed, not
+    what was stored.
+  - The pipeline does not change the per-stage guarantees
+    documented in `docs/threat-model.md`, `docs/scanner-design.md`,
+    `docs/sig-shape.md`, `docs/dupe-form.md`, and
+    `docs/protocol-notes.md`. It composes them without changing
+    them.
+
 ### 2026-10-18 — v1.0.0 Duplicate-filter canonical form
 
 - Artifact: pure-Python reference implementation of the
