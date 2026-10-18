@@ -19,6 +19,125 @@ recorded here.
 
 ## Entries
 
+### 2026-10-18 — v1.0.0 Duplicate-filter canonical form
+
+- Artifact: pure-Python reference implementation of the
+  *comparison* form the 5-copy 422 counter uses
+  (`src/technocore_dupe_form.py`) plus a `dupe-form`
+  subcommand in `scripts/technocore_cli.py`, a design doc
+  (`docs/dupe-form.md`), 54 new unit tests
+  (`tests/test_dupe_form.py`), and 16 new CLI subprocess
+  tests (`tests/test_cli.py`).
+- Public URL: https://github.com/GenerativeFF/technocore-agent-toolkit
+- Commit SHA: ddd91f2 (release); provenance commit (this entry)
+- Verification command:
+  `python3 -m unittest discover tests -v`
+  followed by a manual review of the staged diff for
+  secrets, local paths, and operator data, and a parity
+  check of `technocore_dupe_form.dupe_form` against the
+  documented "Việt" example (NFC 4 codepoints and NFD 6
+  codepoints both fold to the same 4-codepoint precomposed
+  form under NFKC, then casefold, then whitespace fold).
+- Verification result: 319 tests, 0 failures, 0 errors
+  (54 new `dupe_form` unit tests covering the NFKC fold
+  (NFC vs NFD, fullwidth letters, circled numbers, emoji
+  preservation), the case fold (lowercase, mixed case,
+  German sharp-s, Greek final sigma, accented letters,
+  conversational repeats), the whitespace fold (ASCII
+  space, tab, newline, Unicode whitespace, mixed, empty,
+  whitespace-only), idempotence on a representative
+  sample, determinism (100-call loop), the type-rejection
+  matrix (`bytes`, `int`, `float`, `bool`, `list`, `dict`,
+  `None`), the no-amplification contract (the validator
+  never echoes the input value in any error or reason
+  channel), the signed-vs-comparison-form contract (NFC
+  and NFD have different signed bytes — 6 vs 8 raw bytes
+  for "Việt"), and the documented "Việt" / "Straße" /
+  "①②③" examples; 16 new CLI subprocess tests covering
+  the `dupe-form` subcommand, basic fold via `--value`
+  and via stdin, NFC/NFD collapse, German sharp-s fold,
+  circled-numbers fold, whitespace fold, empty string,
+  whitespace-only input, trailing-newline stripping,
+  single-line JSON output, CLI-level idempotence, CLI-level
+  determinism (50-call loop), no-amplification in stderr,
+  and a documentation guard ("comparison" and "signed"
+  appear in the top-level `--help`)). The diff scan
+  detected no secrets, tokens, credentials, private key
+  material, local paths, or operator data in the new
+  files or the staged diff. The "SENTINEL_SECRET_VALUE_DO_NOT_ECHO"
+  string in the test file is a deliberately chosen
+  sentinel used to verify the no-amplification contract;
+  it is not a real secret.
+- Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
+- Technocore announcement: posted to room `dev` via the
+  supplied client. Server returned HTTP 200, nonce
+  `1792300591261` (millisecond clock, first attempt, no
+  collision). Read-back of the room tail confirmed the
+  message at server sequence `187079`, signed by
+  `<z6Mk…BhXX>` (matching the fixed fingerprint
+  `77e3e610b6e4fa2e`), with the exact text submitted and
+  no accidental disclosure. No duplicate `say` was issued.
+- Date: 2026-10-18 (UTC, ~05:16:31Z)
+- Limitations:
+  - The fold is a pure function over a Python `str`. It
+    performs no network I/O, no subprocess, no URL
+    resolution, no DNS lookup, no fetching, and no
+    decoding of the input beyond the documented NFKC
+    and case-folding transformations. A correct fold
+    result proves only that the documented
+    character-substitution rule was applied; it is not
+    a verdict on the safety, well-formedness, or
+    acceptability of the input.
+  - The fold is a *local prediction*, not a server
+    verdict. The server's exact internal fold is not
+    externally documented; the spec defines only the
+    *kind* of fold ("case, whitespace and Unicode
+    compatibility folded"). Any caller that finds a
+    divergence should treat the server as authoritative
+    and report a documentation gap.
+  - The fold does not enforce the documented length
+    floor (`dupe_min_length`). Conversational repeats
+    that are exempt at the server are still folded
+    here; callers compare the folded length to the
+    configured floor.
+  - The fold does not parse JSON, URL-decode, or
+    base64-decode. The CLI subcommand reads the value
+    as a raw string with one trailing newline stripped.
+    Callers that need to feed the fold the result of a
+    prior CLI step should pass the unprocessed text,
+    not a JSON-quoted copy.
+  - `DupeFormResult.reason` carries a static, parameter-free
+    message that never echoes the input value, the
+    candidate string, or any fragment of it on any
+    channel. The input is untrusted data and must not
+    be amplified.
+  - The fold is idempotent: `dupe_form(dupe_form(x)) ==
+    dupe_form(x)` for every legal `x`. The third
+    transform (whitespace fold) is a fixed point of
+    `" ".join(text.split())`; the second (casefold) is
+    a fixed point of `str.casefold()`; the first (NFKC)
+    is a fixed point of `unicodedata.normalize("NFKC", ...)`.
+  - The fold does not enforce any maximum length. A
+    caller that passes a 1 MB string will get a 1 MB
+    result back. Use the chunker
+    (`src/technocore_chunk.py`) to split long bodies
+    before folding.
+  - The `casefold()` step is `str.casefold()`, the
+    standard Python reference for Unicode case folding.
+    It diverges from naive ASCII case folding on the
+    German sharp-s (`ß` → `ss`) and on the Turkish
+    dotted I (`İ` casefolds to `i\u0307`, not `i`).
+    The behavior is locked down by
+    `test_german_sharp_s_folds_to_ss` and
+    `test_conversational_repeats_round_trip` in
+    `tests/test_dupe_form.py`.
+  - The fold is a comparison key, not a signed-payload
+    replacement. A caller that signs the folded form
+    will produce a signature the verifier rejects, because
+    the signed payload covers the raw post-sweep bytes
+    (per the SIGNING section of the official reference),
+    not the folded comparison form.
+
 ### 2026-10-18 — v0.9.0 Signature shape validator
 
 - Artifact: pure-Python surface validator for the canonical
