@@ -527,5 +527,117 @@ class ChunkCommandTests(unittest.TestCase):
         self.assertIn("invalid int value", err)
 
 
+class SigShapeCommandTests(unittest.TestCase):
+    """Subprocess tests for the ``sig-shape`` subcommand (v0.9.0)."""
+
+    @staticmethod
+    def _valid_86(suffix: str = "A") -> str:
+        # 85 leading 'A' characters + the requested tail.
+        return ("A" * 85) + suffix
+
+    def test_help_top_mentions_sig_shape(self):
+        rc, out, _ = _run(["--help"])
+        self.assertEqual(rc, 0)
+        self.assertIn("sig-shape", out)
+
+    def test_sig_shape_help_exits_zero(self):
+        rc, out, _ = _run(["sig-shape", "--help"])
+        self.assertEqual(rc, 0, msg=out)
+        self.assertIn("--value", out)
+
+    def test_sig_shape_valid_via_value(self):
+        for tail in ("A", "Q", "g", "w"):
+            with self.subTest(tail=tail):
+                rc, out, err = _run(["sig-shape", "--value", self._valid_86(tail)])
+                self.assertEqual(rc, 0, msg=err)
+                payload = _parse_stdout_line(out)
+                self.assertTrue(payload["ok"])
+                self.assertEqual(payload["command"], "sig-shape")
+                result = payload["result"]
+                self.assertTrue(result["valid"])
+                self.assertEqual(result["version"], 1)
+                self.assertNotIn("reason", result)
+
+    def test_sig_shape_valid_via_stdin(self):
+        rc, out, err = _run(
+            ["sig-shape"], stdin_text=self._valid_86("g") + "\n"
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["version"], 1)
+
+    def test_sig_shape_rejects_wrong_length(self):
+        rc, out, err = _run(["sig-shape", "--value", "A" * 85])
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertFalse(result["valid"])
+        self.assertIn("length is 85", result["reason"])
+        self.assertEqual(result["version"], 1)
+
+    def test_sig_shape_rejects_wrong_tail(self):
+        rc, out, err = _run(["sig-shape", "--value", self._valid_86("Z")])
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertFalse(result["valid"])
+        self.assertIn("last character 'Z'", result["reason"])
+
+    def test_sig_shape_rejects_non_base64url_chars(self):
+        # Place the non-base64url character in the middle of an
+        # otherwise-valid 86-char string so the alphabet check
+        # (not the tail check) is what fires.
+        rc, out, err = _run(
+            ["sig-shape", "--value", "A" * 40 + "!" + "A" * 45]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertFalse(result["valid"])
+        self.assertIn("non-base64url", result["reason"])
+
+    def test_sig_shape_rejects_empty(self):
+        rc, out, err = _run(["sig-shape", "--value", ""])
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertFalse(result["valid"])
+        self.assertIn("length is 0", result["reason"])
+
+    def test_sig_shape_rejects_87_chars(self):
+        # 87-char string with a reachable tail: length check fires
+        # before the tail check.
+        rc, out, err = _run(["sig-shape", "--value", "A" * 86 + "A"])
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertFalse(result["valid"])
+        self.assertIn("length is 87", result["reason"])
+
+    def test_sig_shape_strips_trailing_newline(self):
+        # Piping a string into the CLI should not introduce a
+        # bogus 87th character. The CLI strips exactly one trailing
+        # newline before validating.
+        rc, out, err = _run(
+            ["sig-shape"], stdin_text=self._valid_86("g") + "\n"
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+
+    def test_sig_shape_emits_single_line_json(self):
+        rc, out, _ = _run(["sig-shape", "--value", self._valid_86("A")])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.count("\n"), 1)
+        json.loads(out)
+
+    def test_sig_shape_real_ed25519_signature_passes(self):
+        # A signature produced by the project's own verifier module
+        # must pass the surface check.
+        priv = Ed25519PrivateKey.generate()
+        sig_bytes = priv.sign(b"hello")
+        sig_b64 = base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode("ascii")
+        rc, out, err = _run(["sig-shape", "--value", sig_b64])
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+
+
 if __name__ == "__main__":
     unittest.main()

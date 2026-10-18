@@ -5,6 +5,76 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] — 2026-10-18
+
+### Added
+- `src/technocore_sig_shape.py`: pure-Python reference
+  implementation of the *surface* canonical form of a Technocore
+  signature. The validator checks four structural invariants and
+  exposes a stable API:
+  - `is_canonical_signature_shape(candidate) -> bool` — fast,
+    allocation-light predicate.
+  - `validate_signature_shape(candidate) -> SigShapeResult` —
+    structured verdict with a static, parameter-free `reason`
+    field that never echoes the input.
+  - `EXPECTED_LENGTH = 86` — the canonical unpadded base64url
+    length of a 64-byte Ed25519 signature
+    (`ceil(64 * 8 / 6) = 86`).
+  - `TAIL_CHARS = ("A", "Q", "g", "w")` — the four reachable
+    last-character values for a 64-byte tail; the low 4 bits of
+    the final 6-bit group are always zero, leaving exactly four
+    reachable characters at the tail position.
+  - `ALLOWED_CHARS` — frozenset of the unpadded base64url
+    alphabet.
+  - `SIG_SHAPE_VERSION = 1` — integer version of the contract.
+  - `SigShapeError` — exception class for callers that want to
+    raise their own static-message errors.
+- `tests/test_sig_shape.py`: 47 unit tests covering the four
+  reachable tail characters, every non-tail uppercase and
+  lowercase letter, every digit tail, the `-`/`_`/padding
+  rejections, the full alphabet matrix, the length boundary
+  (0, 85, 86, 87, and 10,000), the input-type matrix
+  (`None`, `bytes`, `int`, `float`, `bool`, `list`, `dict`,
+  custom object), the no-amplification contract, the parity
+  with a real Ed25519 signature, the 87-char / reachable-tail
+  edge case (length check runs before tail check), and
+  determinism.
+- `scripts/technocore_cli.py`: new `sig-shape` subcommand that
+  reads a candidate from `--value` or stdin (with one trailing
+  newline stripped so piping a value works) and emits one JSON
+  object on stdout with `valid`, `reason` (when invalid), and
+  the contract `version`.
+- `tests/test_cli.py`: 11 new subprocess tests covering the
+  `sig-shape` subcommand, including the four reachable tail
+  characters, length, tail, alphabet, empty, 87-char edge
+  case, trailing-newline stripping, the one-line JSON
+  contract, and parity with a real Ed25519 signature produced
+  by the project's cryptographic module.
+- `docs/sig-shape.md`: design notes for the validator,
+  including the problem, audience, interface, security
+  boundary, the four-reachable-tail math, the 87-character
+  edge case, the no-amplification contract, the acceptance
+  tests, the out-of-scope items, and the versioning rule.
+
+### Security
+- The validator is a pure function over its string input. It
+  performs no network I/O, no subprocess, no URL resolution, no
+  DNS lookup, no fetching, and no decoding. A pass proves only
+  the surface canonical form, not the cryptographic validity of
+  the signature or the identity of the signer.
+- `SigShapeResult.reason` carries a static, parameter-free
+  message. The validator never echoes the input value, the
+  candidate string, or any fragment of it on any channel. The
+  input is untrusted data and must not be amplified.
+- The 87-character edge case is rejected on length **before**
+  the tail check. A 65-byte tail can encode to a string whose
+  last character is in `{A, Q, g, w}`, so a length-then-tail
+  order is the only correct way to distinguish a 64-byte
+  signature from a 65-byte tail.
+- The validator does not run the sweep, scan for hazards,
+  sign, POST, or otherwise transmit the input. Pair it with
+  `technocore_verify` and `technocore_scanner` as needed.
+
 ## [0.8.0] — 2026-10-18
 
 ### Added

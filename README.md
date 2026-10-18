@@ -27,6 +27,17 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
   per-range test suite and a `SweepReport` for offline debugging
   and conformance checking. The verifier now imports the sweep from
   this module so the rule has exactly one source of truth.
+- **v0.8.0** — Message chunker utility. Pure-Python function that
+  splits a string into pieces each no longer than the documented
+  4096-character per-message cap, with whitespace-aware split
+  points, oversize-token handling, and a stable CLI subcommand.
+- **v0.9.0** — Signature shape validator. Field report and
+  reference implementation of the surface canonical form of a
+  Technocore signature: length 86, unpadded base64url alphabet,
+  last char in `{A, Q, g, w}`. Fast pre-filter for callers that
+  want to reject malformed signatures before paying for the
+  cryptographic check. Includes a CLI subcommand and a design
+  doc.
 
 ## Why
 
@@ -44,6 +55,8 @@ implementations can stay byte-for-byte compatible.
 | `src/technocore_sweep.py` | **NEW:** Canonical single-pass text sweep (pure Python). |
 | `src/technocore_nonce.py` | Nonce and replay checker (pure Python). |
 | `src/technocore_scanner.py` | Safe-room scanner (pure Python). |
+| `src/technocore_chunk.py` | **NEW:** Message chunker that splits long bodies to the documented 4096-char cap. |
+| `src/technocore_sig_shape.py` | **NEW:** Surface shape validator for signature strings (length 86, unpadded base64url, last char in `{A, Q, g, w}`). |
 | `tests/test_verifier.py` | Unit tests and vector-driven tests with ephemeral keys. |
 | `tests/test_sweep.py` | **NEW:** Unit tests for the canonical sweep (every codepoint, every boundary). |
 | `tests/test_nonce.py` | Unit tests for the nonce/replay checker. |

@@ -42,6 +42,20 @@ function: it does not sign, POST, or otherwise transmit the text.
     python3 scripts/technocore_cli.py chunk [--max-len N] [--file PATH]
     # text is read from PATH, or from stdin when PATH is omitted.
 
+``sig-shape`` — validate the *surface* canonical form of a
+candidate Technocore signature string (length 86, unpadded
+base64url alphabet, last char in ``{A, Q, g, w}``). This is a
+fast, allocation-light pre-filter for callers that want to reject
+malformed signatures before paying for a cryptographic
+verification. The signature string is read from ``--value`` or
+stdin. Emits one JSON object on stdout with ``valid``, ``reason``
+(when invalid), and a ``version`` field. The validator is a pure
+function: it does not verify the signature cryptographically,
+does not sign, POST, or otherwise transmit the value.
+
+    python3 scripts/technocore_cli.py sig-shape [--value STRING]
+    # value is read from --value, or from stdin when --value is omitted.
+
 Output
 ------
 
@@ -96,6 +110,13 @@ from technocore_chunk import (  # noqa: E402
 )
 from technocore_nonce import NonceCheckResult, NonceChecker  # noqa: E402
 from technocore_scanner import ScanError, ScanResult, scan as scanner_scan  # noqa: E402
+from technocore_sig_shape import (  # noqa: E402
+    SIG_SHAPE_VERSION,
+    SigShapeError,
+    SigShapeResult,
+    is_canonical_signature_shape,
+    validate_signature_shape,
+)
 from technocore_verify import (  # noqa: E402
     VerifyResult,
     VerifierError,
@@ -228,6 +249,21 @@ def _result_to_dict_chunk(chunks: list[str], max_len: int) -> dict[str, Any]:
     }
 
 
+def _result_to_dict_sig_shape(result: SigShapeResult) -> dict[str, Any]:
+    """Convert a ``SigShapeResult`` to a JSON-friendly dict.
+
+    The ``valid`` boolean is always present, the ``reason`` is
+    included only when the verdict is invalid, and the contract
+    ``version`` is included on every successful run so callers can
+    pin against it. The validator never echoes the input value
+    onto any channel; ``reason`` is a static, parameter-free string.
+    """
+    out: dict[str, Any] = {"valid": bool(result.valid), "version": int(SIG_SHAPE_VERSION)}
+    if not result.valid:
+        out["reason"] = result.reason
+    return out
+
+
 def cmd_scan(args: argparse.Namespace) -> NoReturn:
     text = _read_text_arg(args, attr="file")
     try:
@@ -313,6 +349,33 @@ def cmd_chunk(args: argparse.Namespace) -> NoReturn:
             "ok": True,
             "command": "chunk",
             "result": _result_to_dict_chunk(chunks, max_len),
+        }
+    )
+
+
+def cmd_sig_shape(args: argparse.Namespace) -> NoReturn:
+    # The candidate signature string is read from --value or stdin
+    # (the same convention as the ``scan`` and ``chunk`` commands).
+    # The validator is a pure function: it does not verify the
+    # signature cryptographically, does not sign, POST, or
+    # otherwise transmit the value.
+    value = getattr(args, "value", None)
+    if value is None:
+        value = sys.stdin.read()
+    elif not isinstance(value, str):
+        _fail("--value must be a string", 2)
+    # Strip exactly one trailing newline so piping a string into
+    # the CLI does not add a bogus 87th character. A pre-existing
+    # \n at position 86 (which would never match a canonical
+    # signature anyway) still produces a malformed-shape result.
+    if value.endswith("\n") and len(value) - 1 == 86:
+        value = value[:-1]
+    result = validate_signature_shape(value)
+    _emit(
+        {
+            "ok": True,
+            "command": "sig-shape",
+            "result": _result_to_dict_sig_shape(result),
         }
     )
 
@@ -413,6 +476,27 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_chunk.set_defaults(func=cmd_chunk)
+
+    p_sig_shape = sub.add_parser(
+        "sig-shape",
+        help=(
+            "Validate the surface canonical form of a candidate "
+            "Technocore signature (length 86, unpadded base64url, "
+            "last char in {A, Q, g, w}). Fast pre-filter; does not "
+            "verify the signature cryptographically."
+        ),
+    )
+    p_sig_shape.add_argument(
+        "--value",
+        "-v",
+        default=None,
+        help=(
+            "Candidate signature string. If omitted, the value is "
+            "read from stdin. Exactly one trailing newline is "
+            "stripped so piping a value works."
+        ),
+    )
+    p_sig_shape.set_defaults(func=cmd_sig_shape)
 
     return parser
 
