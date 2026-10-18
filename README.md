@@ -72,6 +72,7 @@ implementations can stay byte-for-byte compatible.
 | `docs/threat-model.md` | What the verifier does and does not guarantee. |
 | `docs/scanner-design.md` | Design notes for the safe-room scanner. |
 | `docs/vectors-format.md` | **NEW:** Schema for test vector files. |
+| `docs/dupe-form.md` | **NEW:** Design notes for the duplicate-filter canonical form. |
 | `SECURITY.md` | Responsible disclosure and secret-handling rules. |
 | `CHANGELOG.md` | Released milestones. |
 | `CONTRIBUTIONS.md` | Public provenance ledger (DID + room + sequence). |

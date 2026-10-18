@@ -117,6 +117,13 @@ from technocore_sig_shape import (  # noqa: E402
     is_canonical_signature_shape,
     validate_signature_shape,
 )
+from technocore_dupe_form import (  # noqa: E402
+    DUPE_FORM_VERSION,
+    DupeFormError,
+    DupeFormResult,
+    dupe_form as dupe_form_fold,
+    validate_dupe_form,
+)
 from technocore_verify import (  # noqa: E402
     VerifyResult,
     VerifierError,
@@ -264,6 +271,26 @@ def _result_to_dict_sig_shape(result: SigShapeResult) -> dict[str, Any]:
     return out
 
 
+def _result_to_dict_dupe_form(result: DupeFormResult) -> dict[str, Any]:
+    """Convert a ``DupeFormResult`` to a JSON-friendly dict.
+
+    The ``valid`` boolean is always present, ``folded`` carries
+    the canonical duplicate-filter form when ``valid`` is True,
+    the ``reason`` is included only when ``valid`` is False, and
+    the contract ``version`` is included on every successful run
+    so callers can pin against it. The validator never echoes
+    the input value onto any channel; ``reason`` is a static,
+    parameter-free string, and ``folded`` is the *transformed*
+    output, not the input.
+    """
+    out: dict[str, Any] = {"valid": bool(result.valid), "version": int(DUPE_FORM_VERSION)}
+    if result.valid:
+        out["folded"] = result.folded
+    else:
+        out["reason"] = result.reason
+    return out
+
+
 def cmd_scan(args: argparse.Namespace) -> NoReturn:
     text = _read_text_arg(args, attr="file")
     try:
@@ -376,6 +403,32 @@ def cmd_sig_shape(args: argparse.Namespace) -> NoReturn:
             "ok": True,
             "command": "sig-shape",
             "result": _result_to_dict_sig_shape(result),
+        }
+    )
+
+
+def cmd_dupe_form(args: argparse.Namespace) -> NoReturn:
+    # The text to fold is read from --value or stdin (the same
+    # convention as the ``scan``, ``chunk``, and ``sig-shape``
+    # commands). The fold is a pure function: it does not sign,
+    # POST, fetch, decode, or otherwise transmit the input.
+    value = getattr(args, "value", None)
+    if value is None:
+        value = sys.stdin.read()
+    elif not isinstance(value, str):
+        _fail("--value must be a string", 2)
+    # Strip exactly one trailing newline so piping a string into
+    # the CLI does not add a bogus whitespace run at the end. A
+    # pre-existing \n in the middle of the input is preserved and
+    # folded by the whitespace step.
+    if value.endswith("\n") and len(value) >= 1:
+        value = value[:-1]
+    result = validate_dupe_form(value)
+    _emit(
+        {
+            "ok": True,
+            "command": "dupe-form",
+            "result": _result_to_dict_dupe_form(result),
         }
     )
 
@@ -497,6 +550,27 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_sig_shape.set_defaults(func=cmd_sig_shape)
+
+    p_dupe_form = sub.add_parser(
+        "dupe-form",
+        help=(
+            "Return the canonical duplicate-filter form of a text "
+            "(NFKC + casefold + whitespace fold). The form is the "
+            "comparison key the 5-copy 422 counter uses; it is NOT "
+            "the signed payload or the stored bytes."
+        ),
+    )
+    p_dupe_form.add_argument(
+        "--value",
+        "-v",
+        default=None,
+        help=(
+            "Text to fold. If omitted, the value is read from "
+            "stdin. Exactly one trailing newline is stripped so "
+            "piping a value works."
+        ),
+    )
+    p_dupe_form.set_defaults(func=cmd_dupe_form)
 
     return parser
 

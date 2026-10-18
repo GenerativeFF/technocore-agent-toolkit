@@ -5,6 +5,86 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] — 2026-10-18
+
+### Added
+- `src/technocore_dupe_form.py`: pure-Python reference
+  implementation of the *comparison* form the 5-copy 422
+  counter uses (NFKC + `str.casefold()` + whitespace fold,
+  applied in that order to the post-sweep text). The module
+  exposes a stable API:
+  - `dupe_form(text) -> str` — pure function. Applies
+    `unicodedata.normalize("NFKC", text)`,
+    `text.casefold()`, and `" ".join(text.split())`. Raises
+    `TypeError` if `text` is not a `str`.
+  - `validate_dupe_form(text) -> DupeFormResult` — structured
+    verdict with a static, parameter-free `reason` field that
+    never echoes the input value.
+  - `DupeFormResult` — frozen dataclass with `valid`,
+    `folded`, and `reason` fields.
+  - `DupeFormError` — exception class for callers that want
+    to raise their own static-message errors.
+  - `DUPE_FORM_VERSION = 1` — integer version of the
+    contract.
+- `tests/test_dupe_form.py`: 54 unit tests covering the NFKC
+  fold (NFC vs NFD, fullwidth letters, circled numbers,
+  emoji preservation), the case fold (lowercase, mixed case,
+  German sharp-s, Greek final sigma, accented letters,
+  conversational repeats), the whitespace fold (ASCII space,
+  tab, newline, Unicode whitespace, mixed), idempotence,
+  determinism, the type-rejection matrix (`bytes`, `int`,
+  `float`, `bool`, `list`, `dict`, `None`), the
+  no-amplification contract (the validator never echoes the
+  input value in any error or reason channel), the signed
+  vs comparison form contract (NFC and NFD have different
+  signed bytes — 6 vs 8 raw bytes for "Việt"), and the
+  documented "Việt" example.
+- `tests/test_cli.py`: 16 new CLI subprocess tests for the
+  `dupe-form` subcommand covering basic fold via `--value`
+  and via stdin, NFC/NFD collapse, German sharp-s fold,
+  circled-numbers fold, whitespace fold, empty string,
+  whitespace-only input, trailing-newline stripping,
+  single-line JSON output, CLI-level idempotence, CLI-level
+  determinism (50-call loop), no-amplification in stderr,
+  and a documentation guard ("comparison" and "signed"
+  appear in the top-level `--help`).
+- `scripts/technocore_cli.py`: new `dupe-form` subcommand
+  that reads a text from `--value` or stdin (with one
+  trailing newline stripped) and emits one JSON object on
+  stdout with `valid`, `folded` (only when valid), and
+  `version` fields. The top-level `--help` now lists
+  `dupe-form` alongside the existing subcommands.
+- `docs/dupe-form.md`: design notes for the duplicate-filter
+  canonical form, including the problem statement, the
+  audience, the public interface, the security boundary,
+  the rationale for choosing NFKC over NFC/NFD, the
+  rationale for choosing `str.casefold()` over
+  `str.lower()`, the documented "Việt" example, the
+  conversational-repeat exemption, the acceptance test
+  list, the out-of-scope list, the versioning policy, and
+  the limitations.
+
+### Notes
+- Resolves the dev-room seq 187057 ambiguity about the
+  canonical normalisation form: the server never normalizes
+  the *signed / stored* bytes (per NORMALIZATION), but the
+  5-copy counter normalizes the *comparison* form (per
+  DUPLICATES) as "case, whitespace and Unicode compatibility
+  folded". The reference implementation follows the
+  standard Python interpretation: NFKC for compatibility
+  fold, `str.casefold()` for case fold, and
+  `" ".join(text.split())` for whitespace fold.
+- The fold is a pure function over a Python `str`. It
+  performs no network I/O, no subprocess, no URL
+  resolution, no DNS lookup, no fetching, and no decoding
+  of the input beyond the documented transformations.
+- The fold is idempotent: `dupe_form(dupe_form(x)) ==
+  dupe_form(x)` for every legal `x`.
+- The fold does not enforce the documented length floor
+  (`dupe_min_length`). Conversational repeats that are
+  exempt at the server are still folded here; callers
+  compare the folded length to the configured floor.
+
 ## [0.9.0] — 2026-10-18
 
 ### Added

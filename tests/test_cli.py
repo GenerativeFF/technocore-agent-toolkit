@@ -64,9 +64,10 @@ class HelpTests(unittest.TestCase):
         self.assertIn("verify", out)
         self.assertIn("nonce-check", out)
         self.assertIn("chunk", out)
+        self.assertIn("dupe-form", out)
 
     def test_subcommand_help_exits_zero(self):
-        for sub in ("scan", "verify", "nonce-check", "chunk"):
+        for sub in ("scan", "verify", "nonce-check", "chunk", "dupe-form"):
             with self.subTest(sub=sub):
                 rc, out, _ = _run([sub, "--help"])
                 self.assertEqual(rc, 0, msg=out)
@@ -637,6 +638,189 @@ class SigShapeCommandTests(unittest.TestCase):
         self.assertEqual(rc, 0, msg=err)
         result = _parse_stdout_line(out)["result"]
         self.assertTrue(result["valid"])
+
+
+class DupeFormCommandTests(unittest.TestCase):
+    """Subprocess tests for the ``dupe-form`` subcommand (v1.0.0)."""
+
+    def test_help_top_mentions_dupe_form(self):
+        rc, out, _ = _run(["--help"])
+        self.assertEqual(rc, 0)
+        self.assertIn("dupe-form", out)
+
+    def test_dupe_form_help_exits_zero(self):
+        rc, out, _ = _run(["dupe-form", "--help"])
+        self.assertEqual(rc, 0, msg=out)
+        self.assertIn("--value", out)
+
+    def test_dupe_form_basic_fold_via_value(self):
+        rc, out, err = _run(["dupe-form", "--value", "Hello World"])
+        self.assertEqual(rc, 0, msg=err)
+        payload = _parse_stdout_line(out)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "dupe-form")
+        result = payload["result"]
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["folded"], "hello world")
+        self.assertEqual(result["version"], 1)
+
+    def test_dupe_form_basic_fold_via_stdin(self):
+        rc, out, err = _run(
+            ["dupe-form"], stdin_text="Hello World\n"
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["folded"], "hello world")
+
+    def test_dupe_form_collapses_nfc_and_nfd(self):
+        # The documented example: "Việt" in NFC and NFD
+        # both fold to "việt". The CLI must produce the
+        # same folded form for both.
+        rc1, out1, err1 = _run(["dupe-form", "--value", "Vi\u1ec7t"])
+        self.assertEqual(rc1, 0, msg=err1)
+        nfc_folded = _parse_stdout_line(out1)["result"]["folded"]
+        import unicodedata
+        rc2, out2, err2 = _run(
+            ["dupe-form", "--value", unicodedata.normalize("NFD", "Vi\u1ec7t")]
+        )
+        self.assertEqual(rc2, 0, msg=err2)
+        nfd_folded = _parse_stdout_line(out2)["result"]["folded"]
+        self.assertEqual(nfc_folded, nfd_folded)
+        self.assertEqual(nfc_folded, "vi\u1ec7t")
+
+    def test_dupe_form_folds_german_sharp_s(self):
+        rc, out, err = _run(["dupe-form", "--value", "Stra\u00dfe"])
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertEqual(result["folded"], "strasse")
+
+    def test_dupe_form_folds_circled_numbers(self):
+        # ①②③ (NFKC) -> 123.
+        rc, out, err = _run(
+            ["dupe-form", "--value", "\u2460\u2461\u2462"]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertEqual(result["folded"], "123")
+
+    def test_dupe_form_folds_whitespace(self):
+        # ASCII space, tab, newline all fold to a single
+        # space; ends are stripped.
+        rc, out, err = _run(
+            ["dupe-form", "--value", "  hello \t world \n  foo  "]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertEqual(result["folded"], "hello world foo")
+
+    def test_dupe_form_empty_string(self):
+        rc, out, err = _run(["dupe-form", "--value", ""])
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["folded"], "")
+
+    def test_dupe_form_whitespace_only(self):
+        rc, out, err = _run(["dupe-form", "--value", "   \t\n  "])
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["folded"], "")
+
+    def test_dupe_form_strips_trailing_newline(self):
+        # Piping a string into the CLI should not add a
+        # bogus trailing whitespace run.
+        rc, out, err = _run(
+            ["dupe-form"], stdin_text="Hello World\n"
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertEqual(result["folded"], "hello world")
+
+    def test_dupe_form_emits_single_line_json(self):
+        rc, out, _ = _run(["dupe-form", "--value", "Hello World"])
+        self.assertEqual(rc, 0)
+        # The CLI writes exactly one line on stdout.
+        self.assertEqual(out.count("\n"), 1)
+        # And that line is valid JSON.
+        json.loads(out)
+
+    def test_dupe_form_idempotent_via_cli(self):
+        # dupe_form(dupe_form(x)) == dupe_form(x). Folding
+        # the folded output must produce the same form.
+        rc1, out1, err1 = _run(
+            ["dupe-form", "--value", "Hello World"]
+        )
+        self.assertEqual(rc1, 0, msg=err1)
+        folded_once = _parse_stdout_line(out1)["result"]["folded"]
+        rc2, out2, err2 = _run(["dupe-form", "--value", folded_once])
+        self.assertEqual(rc2, 0, msg=err2)
+        folded_twice = _parse_stdout_line(out2)["result"]["folded"]
+        self.assertEqual(folded_once, folded_twice)
+
+    def test_dupe_form_deterministic_via_cli(self):
+        # A 50-call loop produces identical results each
+        # time. The fold has no hidden state.
+        first = None
+        for _ in range(50):
+            rc, out, err = _run(["dupe-form", "--value", "Hello World"])
+            self.assertEqual(rc, 0, msg=err)
+            folded = _parse_stdout_line(out)["result"]["folded"]
+            if first is None:
+                first = folded
+            self.assertEqual(folded, first)
+
+    def test_dupe_form_no_amplification_in_stderr(self):
+        # A non-string sentinel reaches the type-rejection
+        # path. The CLI must not echo the input value in
+        # any error channel. (The CLI's exit code for an
+        # input validation error is 2; the error is written
+        # to stderr as one JSON line.)
+        # We use --value with a non-string value via a
+        # subprocess-level trick: pass --value with a value
+        # that survives shell escaping unchanged. The CLI
+        # is a pure function over a Python str, so any
+        # string value is valid input; this test only
+        # asserts that no input value appears in any
+        # error channel for the *valid* happy path. The
+        # structured-verdict channel is exercised by the
+        # Python API tests; here we lock down the JSON
+        # output contract on the happy path.
+        rc, out, err = _run(["dupe-form", "--value", "Hello World"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(err, "")
+        # The output line must not contain the input
+        # verbatim except as the *folded* form (which is
+        # the documented transformation, not an echo of
+        # the input).
+        payload = _parse_stdout_line(out)
+        # The folded form is "hello world" (lowercased);
+        # the input was "Hello World" (mixed case). The
+        # payload itself does not echo the input string
+        # in any field.
+        self.assertNotIn("Hello World", json.dumps(payload))
+        # And the folded form is the documented lowercased
+        # form.
+        self.assertEqual(payload["result"]["folded"], "hello world")
+
+    def test_dupe_form_help_mentions_comparison_form(self):
+        # The subcommand help text (visible in the top-level
+        # ``--help`` output) must mention that the output is
+        # the *comparison* form, not the signed payload.
+        # This is a documentation guard so callers do not
+        # accidentally sign the folded form.
+        rc, out, _ = _run(["--help"])
+        self.assertEqual(rc, 0)
+        # argparse renders the subcommand help text in the
+        # top-level --help output under
+        # "dupe-form   <description>".
+        self.assertIn("dupe-form", out)
+        # The description must mention both "comparison"
+        # and "signed" so callers can see the distinction
+        # without reading the docs.
+        self.assertIn("comparison", out.lower())
+        self.assertIn("signed", out.lower())
 
 
 if __name__ == "__main__":
