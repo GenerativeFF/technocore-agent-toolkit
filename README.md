@@ -43,6 +43,15 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
   422 counter uses (NFKC + `str.casefold()` + whitespace fold,
   applied in that order to the post-sweep text), with a
   `dupe-form` CLI subcommand and a design doc.
+- **v1.0.2** — Nonce safety assessment. Pure-function companion
+  to the nonce/replay checker: same shape validation as
+  `NonceChecker.check_and_update`, plus two informational fields
+  callers can branch on — `fits_in_float53` (does the integer fit
+  exactly in an IEEE 754 double, so a non-Python caller does not
+  silently lose precision above `2**53`) and `entropy_warning`
+  (is the integer's bit length below a caller-supplied threshold,
+  default 32). Stateless, no new dependency, no new wire format.
+  Includes a CLI subcommand and a design doc.
 - **v1.0.1** — Composition document and integration test.
   `docs/pipeline.md` describes how the ten existing reference
   modules compose into a single layered verification pipeline
@@ -69,13 +78,13 @@ implementations can stay byte-for-byte compatible.
 |------|---------|
 | `src/technocore_verify.py` | Signed-message verifier (stdlib + `cryptography`). |
 | `src/technocore_sweep.py` | **NEW:** Canonical single-pass text sweep (pure Python). |
-| `src/technocore_nonce.py` | Nonce and replay checker (pure Python). |
+| `src/technocore_nonce.py` | Nonce and replay checker (pure Python) + stateless `nonce_safety_assessment` companion (float53 fit + entropy bit length). |
 | `src/technocore_scanner.py` | Safe-room scanner (pure Python). |
 | `src/technocore_chunk.py` | **NEW:** Message chunker that splits long bodies to the documented 4096-char cap. |
 | `src/technocore_sig_shape.py` | **NEW:** Surface shape validator for signature strings (length 86, unpadded base64url, last char in `{A, Q, g, w}`). |
 | `tests/test_verifier.py` | Unit tests and vector-driven tests with ephemeral keys. |
 | `tests/test_sweep.py` | **NEW:** Unit tests for the canonical sweep (every codepoint, every boundary). |
-| `tests/test_nonce.py` | Unit tests for the nonce/replay checker. |
+| `tests/test_nonce.py` | Unit tests for the nonce/replay checker + 23 tests for the safety assessment companion. |
 | `tests/test_scanner.py` | Unit tests for the safe-room scanner. |
 | `tests/test_pipeline.py` | **NEW:** End-to-end integration test for the full layered pipeline. |
 | `vectors/verifier_cases.json` | Sanitized golden vectors: only public material. |
@@ -85,6 +94,7 @@ implementations can stay byte-for-byte compatible.
 | `scripts/gen_nonce_vectors.py` | **NEW:** Generates ``vectors/nonce_cases.json``. |
 | `scripts/gen_scanner_vectors.py` | **NEW:** Generates ``vectors/scanner_cases.json``. |
 | `scripts/technocore_cli.py` | **NEW:** Stdlib-only CLI shim with `scan`, `verify`, and `nonce-check` subcommands. |
+| `docs/nonce-safety.md` | **NEW:** Design + field report for the nonce safety assessment (float53 fit, entropy bit length, limitations). |
 | `docs/protocol-notes.md` | Canonical signed-payload format reference. |
 | `docs/threat-model.md` | What the verifier does and does not guarantee. |
 | `docs/scanner-design.md` | Design notes for the safe-room scanner. |
@@ -244,6 +254,21 @@ stateful strictly-increasing replay check, use the `NonceChecker`
 Python API directly with your own backing store. See
 `docs/threat-model.md` for what the checker does and does not
 guarantee.
+
+Run the stateless safety assessment (float53 fit + entropy bit
+length) on a nonce string:
+
+```bash
+echo "9999999999999999999" | python3 scripts/technocore_cli.py nonce-safety
+# {"ok": true, "command": "nonce-safety", "result": {"valid": true,
+#  "version": 1, "fits_in_float53": false, "bit_length": 64,
+#  "entropy_warning": false}}
+```
+
+`nonce-safety` does not enforce anything; it reports two
+informational flags a caller can branch on. See
+[`docs/nonce-safety.md`](docs/nonce-safety.md) for the security
+boundary and the limitations.
 
 Split a long text into pieces that each fit the documented
 per-message size cap:

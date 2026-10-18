@@ -22,6 +22,18 @@ optional raw Ed25519 public key and/or optional expected DID.
         --payload PATH [--public-key HEX] [--expected-did DID]
     # payload JSON is read from PATH, or from stdin when PATH is omitted.
 
+``nonce-safety`` — structured safety assessment of a nonce
+string. Reports shape validity (1..19 decimal digits, positive
+integer), whether the integer fits exactly in an IEEE 754 double
+(so a non-Python caller does not silently lose precision when
+the JSON number is decoded as a ``double``), the bit length of
+the integer, and whether the bit length falls below a caller-
+supplied entropy threshold (default 32 bits). Pure function, no
+state, no network I/O.
+
+    python3 scripts/technocore_cli.py nonce-safety [--value NONCE] [--min-bits N]
+    # value is read from --value, or from stdin when --value is omitted.
+
 ``nonce-check`` — validate the shape of a nonce (1..19 decimal
 digits, positive integer). The on-protocol strictly-increasing
 ordering check is intentionally not exposed here, because the
@@ -108,7 +120,14 @@ from technocore_chunk import (  # noqa: E402
     ChunkError,
     chunk_message,
 )
-from technocore_nonce import NonceCheckResult, NonceChecker  # noqa: E402
+from technocore_nonce import (  # noqa: E402
+    DEFAULT_MIN_BITS as NONCE_DEFAULT_MIN_BITS,
+    NONCE_SAFETY_VERSION,
+    NonceCheckResult,
+    NonceChecker,
+    NonceSafetyResult,
+    nonce_safety_assessment,
+)
 from technocore_scanner import ScanError, ScanResult, scan as scanner_scan  # noqa: E402
 from technocore_sig_shape import (  # noqa: E402
     SIG_SHAPE_VERSION,
@@ -235,6 +254,30 @@ def _result_to_dict_nonce(result: NonceCheckResult) -> dict[str, Any]:
     }
 
 
+def _result_to_dict_nonce_safety(result: NonceSafetyResult) -> dict[str, Any]:
+    """Convert a ``NonceSafetyResult`` to a JSON-friendly dict.
+
+    The ``valid`` boolean is always present, the ``reason`` is
+    included only when the verdict is invalid, and the contract
+    ``version`` is included on every successful run so callers can
+    pin against it. The float53 and entropy fields are only
+    meaningful when ``valid`` is True; they are still emitted on
+    every successful run so callers can branch on them without
+    having to introspect the ``valid`` flag first.
+    """
+    out: dict[str, Any] = {
+        "valid": bool(result.valid),
+        "version": int(result.version),
+    }
+    if not result.valid:
+        out["reason"] = result.reason
+    else:
+        out["fits_in_float53"] = bool(result.fits_in_float53)
+        out["bit_length"] = int(result.bit_length)
+        out["entropy_warning"] = bool(result.entropy_warning)
+    return out
+
+
 def _result_to_dict_chunk(chunks: list[str], max_len: int) -> dict[str, Any]:
     """Convert a chunker output to a JSON-friendly dict.
 
@@ -329,6 +372,46 @@ def cmd_verify(args: argparse.Namespace) -> NoReturn:
         _fail(f"verify failed: {exc}", 3)
     _emit(
         {"ok": True, "command": "verify", "result": _result_to_dict_verify(result)}
+    )
+
+
+def cmd_nonce_safety(args: argparse.Namespace) -> NoReturn:
+    # The nonce string is read from --value or stdin (the same
+    # convention as ``sig-shape`` and ``dupe-form``). The assessment
+    # is a pure function over its input: it does not call the
+    # network, does not read a room, and does not record anything.
+    value = getattr(args, "value", None)
+    if value is None:
+        value = sys.stdin.read()
+    elif not isinstance(value, str):
+        _fail("--value must be a string", 2)
+    # Strip exactly one trailing newline so piping a nonce string
+    # into the CLI does not add a bogus 20th character (which would
+    # always be rejected by the shape check anyway). A pre-existing
+    # newline anywhere else in the string is preserved.
+    if value.endswith("\n") and len(value) >= 1:
+        value = value[:-1]
+    # ``--min-bits`` is parsed by ``type=int`` so a non-int input
+    # already exits 2 with an argparse error before we get here;
+    # we still defensively guard against ``bool`` and non-positive
+    # values so the CLI matches the Python API's error surface.
+    min_bits = getattr(args, "min_bits", NONCE_DEFAULT_MIN_BITS)
+    if isinstance(min_bits, bool) or not isinstance(min_bits, int):
+        _fail("--min-bits must be an int", 2)
+    if min_bits <= 0:
+        _fail("--min-bits must be a positive integer", 2)
+    try:
+        result = nonce_safety_assessment(value, min_bits=min_bits)
+    except TypeError as exc:
+        _fail(f"nonce-safety failed: {exc}", 3)
+    except ValueError as exc:
+        _fail(f"nonce-safety failed: {exc}", 3)
+    _emit(
+        {
+            "ok": True,
+            "command": "nonce-safety",
+            "result": _result_to_dict_nonce_safety(result),
+        }
     )
 
 
@@ -500,6 +583,37 @@ def _build_parser() -> argparse.ArgumentParser:
     p_nonce.add_argument("--room", required=True, help="Room slug.")
     p_nonce.add_argument("--nonce", required=True, help="Nonce string to check.")
     p_nonce.set_defaults(func=cmd_nonce_check)
+
+    p_nonce_safety = sub.add_parser(
+        "nonce-safety",
+        help=(
+            "Structured safety assessment of a nonce string. Reports "
+            "shape validity, IEEE 754 double fit, bit length, and "
+            "an entropy warning below a caller-supplied bit threshold "
+            "(default 32). Pure function; no network I/O."
+        ),
+    )
+    p_nonce_safety.add_argument(
+        "--value",
+        "-v",
+        default=None,
+        help=(
+            "Nonce string to assess. If omitted, the value is read "
+            "from stdin. Exactly one trailing newline is stripped so "
+            "piping a value works."
+        ),
+    )
+    p_nonce_safety.add_argument(
+        "--min-bits",
+        type=int,
+        default=NONCE_DEFAULT_MIN_BITS,
+        help=(
+            "Bit-length threshold below which an entropy_warning "
+            "is raised. Must be a positive integer. Defaults to "
+            f"{NONCE_DEFAULT_MIN_BITS}."
+        ),
+    )
+    p_nonce_safety.set_defaults(func=cmd_nonce_safety)
 
     p_chunk = sub.add_parser(
         "chunk",

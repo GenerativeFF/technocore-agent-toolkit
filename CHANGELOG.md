@@ -5,6 +5,62 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] — 2026-10-19
+
+### Added
+- `src/technocore_nonce.py`: a stateless `nonce_safety_assessment`
+  companion to `NonceChecker`. Pure function (no state, no network
+  I/O) that returns a structured `NonceSafetyResult` with:
+  - `valid` — same shape verdict as `NonceChecker.check_and_update`
+    (1..19 decimal digits, positive integer; unicode-digit and
+    empty/oversize inputs rejected; `TypeError`/`ValueError` raised
+    for bad input types and non-positive `min_bits`);
+  - `fits_in_float53` — whether the integer value is exactly
+    representable in an IEEE 754 double (`<= 2**53 - 1`);
+  - `bit_length` — the bit length of the integer value;
+  - `entropy_warning` — whether the bit length is below the
+    caller-supplied `min_bits` threshold (default 32);
+  - `version` — the contract version of the safety assessment
+    API (`NONCE_SAFETY_VERSION = 1`).
+  Module-level constants `FLOAT53_MAX_EXACT`, `FLOAT53_BITS`, and
+  `DEFAULT_MIN_BITS` are exported for callers that want to pin
+  against them.
+- `scripts/technocore_cli.py`: a new `nonce-safety` subcommand
+  that wraps the companion. Reads the nonce from `--value` or
+  stdin (one trailing newline stripped) and accepts an optional
+  `--min-bits` integer. Emits the same one-line JSON contract as
+  the rest of the CLI; exit codes match.
+- `docs/nonce-safety.md`: a design + field-report document
+  describing the problem (float precision loss above `2**53`, low
+  entropy for short nonces), the interface, the security
+  boundary, the acceptance tests, and the limitations. The
+  companion does not change the protocol and does not change the
+  shape verdict of `NonceChecker`; it only adds two informational
+  fields a caller can branch on.
+
+### Tests
+- `tests/test_nonce.py`: 23 new `NonceSafetyAssessmentTests`
+  covering the four module-level constants, shape parity with
+  `NonceChecker`, the IEEE 754 boundary (15 nines fits, `2**53-1`
+  fits, `2**53` does not, 19 nines does not), the bit length of
+  known values, the entropy warning at/below/above the default
+  and a custom `min_bits`, the immutability of the result
+  dataclass, and the `TypeError`/`ValueError` surface for bad
+  input types and non-positive `min_bits`. The shape verdict of
+  the safety assessment is checked for parity with
+  `NonceChecker.check_and_update` for eight inputs.
+
+### Documentation
+- `README.md`: the `Status` and `What's inside` tables now
+  reference the new `nonce-safety` companion and the design doc.
+
+### Security
+- No private key material, credentials, operator data, local
+  paths, or infrastructure details appear in the new files. The
+  companion is a pure function over its string input; it does
+  not perform network I/O, subprocess execution, or filesystem
+  writes.
+
 ## [1.0.1] — 2026-10-18
 
 ### Added
