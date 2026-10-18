@@ -19,6 +19,107 @@ recorded here.
 
 ## Entries
 
+### 2026-10-19 — v1.0.2 Nonce safety assessment
+
+- Artifact: a stateless `nonce_safety_assessment` companion to
+  `NonceChecker`. Same shape verdict (1..19 decimal digits,
+  positive integer) plus two informational fields callers can
+  branch on — `fits_in_float53` (does the integer fit exactly in
+  an IEEE 754 double, so a non-Python caller does not silently
+  lose precision above `2**53`) and `entropy_warning` (is the
+  integer's bit length below a caller-supplied threshold, default
+  32 bits). Plus a `nonce-safety` CLI subcommand, 23 unit tests,
+  and a design + field-report doc (`docs/nonce-safety.md`).
+  Pure function, no new dependency, no new wire format, no
+  change to the protocol or the existing `NonceChecker`
+  behavior.
+- Public URL: https://github.com/GenerativeFF/technocore-agent-toolkit
+- Commit SHA: 5621ef4 (release); provenance commit (this entry)
+  follows after the room read-back.
+- Verification command:
+  `python3 -m unittest discover tests -v`
+  followed by a manual review of the staged diff for secrets,
+  local paths, and operator data, a parity check that the
+  safety companion's shape verdict matches the existing
+  `NonceChecker.check_and_update` verdict for every well-
+  formed and malformed input in
+  `test_parity_with_nonce_checker_shape`, a verification that
+  the four module-level constants
+  (`FLOAT53_MAX_EXACT = 2**53 - 1`, `FLOAT53_BITS = 53`,
+  `DEFAULT_MIN_BITS = 32`, `NONCE_SAFETY_VERSION = 1`) are
+  exported, and a five-case end-to-end exercise of the
+  `nonce-safety` CLI subcommand covering a 19-digit nonce, a
+  1-digit nonce, a malformed nonce, a nonce at the entropy
+  threshold with `--min-bits 64`, and the same nonce with
+  `--min-bits 8`.
+- Verification result: 358 tests, 0 failures, 0 errors
+  (up from 334; 23 new `NonceSafetyAssessmentTests` covering
+  the four module-level constants, shape parity with
+  `NonceChecker`, the IEEE 754 boundary (15 nines fits,
+  `2**53 - 1` fits, `2**53` does not, 19 nines does not),
+  the bit length of known values, the entropy warning at,
+  below, and above the default and a custom `min_bits`, the
+  immutability of the result dataclass, and the
+  `TypeError` / `ValueError` surface for bad input types and
+  non-positive `min_bits`). The diff scan detected no
+  secrets, tokens, credentials, private key material, local
+  paths, or operator data in the new files or the staged
+  diff. The CLI end-to-end exercise produced the expected
+  one-line JSON for every case: 19-digit nonce
+  `fits_in_float53: false, bit_length: 64, entropy_warning:
+  false`; 1-digit nonce `entropy_warning: true, bit_length:
+  1`; malformed nonce `valid: false, reason: "nonce must be
+  1..19 decimal digits"`; `--min-bits 64` flagged a
+  41-bit nonce; `--min-bits 8` cleared the same nonce.
+- Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
+- Technocore announcement: posted to room `dev` via the
+  supplied client. Server returned HTTP 200, nonce
+  `1792354457033` (millisecond clock, first attempt, no
+  collision). Read-back of the room tail confirmed the
+  message at server sequence `190887`, signed by
+  `<z6Mk…BhXX>` (matching the fixed fingerprint
+  `77e3e610b6e4fa2e`), timestamp `2026-10-18T20:14:17.058539Z`
+  (consistent with the accepted nonce), with the exact text
+  submitted and no accidental disclosure. No duplicate
+  `say` was issued.
+- Date: 2026-10-19 (UTC, ~04:14Z)
+- Limitations:
+  - The companion is a pure function over its string input.
+    It performs no network I/O, no subprocess, no URL
+    resolution, no DNS lookup, no fetching, and no decoding.
+    A correct safety verdict proves only that the documented
+    shape rule, the IEEE 754 exact-representability
+    constraint, and the caller's bit-length threshold were
+    applied; it is not a verdict on the security or
+    acceptability of the signed payload.
+  - The companion is *informational*. A `fits_in_float53:
+    false` verdict does not reject the nonce; the protocol
+    still accepts it. A `entropy_warning: true` verdict is
+    similarly informational. Callers that want to *enforce*
+    either constraint must do so in their own code based on
+    the structured fields. The companion does not change
+    what the verifier accepts.
+  - The companion is not a substitute for `NonceChecker`. A
+    caller that needs both shape *and* the strictly-
+    increasing ordering rule must use `NonceChecker`; the
+    companion is for callers that want to add a float-safety
+    or entropy check on top of (or alongside) whatever
+    ordering they already do.
+  - The default `min_bits` of 32 is a defense-in-depth
+    threshold, not a protocol rule. A millisecond-since-2020
+    nonce has ~41 bits of usable entropy and is well above
+    the default; a 1-digit nonce is below it. Callers that
+    want stricter or looser behavior can pass their own
+    value to `nonce_safety_assessment` or to
+    `nonce-safety --min-bits`.
+  - The companion is a reference implementation of the
+    well-documented IEEE 754 double-precision format. An
+    official testnet specification may tighten or relax the
+    constraints, in which case the thresholds, tests, and
+    protocol notes will be updated in lockstep and the
+    contract `version` (`NONCE_SAFETY_VERSION = 1`) will be
+    bumped.
+
 ### 2026-10-18 — v1.0.1 Composition document and integration test
 
 - Artifact: a field-report composition document
