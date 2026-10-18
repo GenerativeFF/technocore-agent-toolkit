@@ -38,6 +38,22 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
   want to reject malformed signatures before paying for the
   cryptographic check. Includes a CLI subcommand and a design
   doc.
+- **v1.0.0** — Duplicate-filter canonical form. Pure-Python
+  reference implementation of the *comparison* form the 5-copy
+  422 counter uses (NFKC + `str.casefold()` + whitespace fold,
+  applied in that order to the post-sweep text), with a
+  `dupe-form` CLI subcommand and a design doc.
+- **v1.0.1** — Composition document and integration test.
+  `docs/pipeline.md` describes how the ten existing reference
+  modules compose into a single layered verification pipeline
+  (signature shape → nonce shape → nonce history → safety scan
+  → duplicate-form fold → signature verify), and
+  `tests/test_pipeline.py` exercises the full pipeline
+  end-to-end with 15 integration tests covering the happy path,
+  CJK / emoji content, the duplicate-form fold fixed-point,
+  every per-stage failure mode, the canonical-bytes parity
+  invariant, the cheap-pre-filter ordering, and the
+  determinism of the composition.
 
 ## Why
 
@@ -61,6 +77,7 @@ implementations can stay byte-for-byte compatible.
 | `tests/test_sweep.py` | **NEW:** Unit tests for the canonical sweep (every codepoint, every boundary). |
 | `tests/test_nonce.py` | Unit tests for the nonce/replay checker. |
 | `tests/test_scanner.py` | Unit tests for the safe-room scanner. |
+| `tests/test_pipeline.py` | **NEW:** End-to-end integration test for the full layered pipeline. |
 | `vectors/verifier_cases.json` | Sanitized golden vectors: only public material. |
 | `vectors/nonce_cases.json` | **NEW:** Sanitized nonce test cases. |
 | `vectors/scanner_cases.json` | **NEW:** Sanitized scanner test cases. |
@@ -73,6 +90,7 @@ implementations can stay byte-for-byte compatible.
 | `docs/scanner-design.md` | Design notes for the safe-room scanner. |
 | `docs/vectors-format.md` | **NEW:** Schema for test vector files. |
 | `docs/dupe-form.md` | **NEW:** Design notes for the duplicate-filter canonical form. |
+| `docs/pipeline.md` | **NEW:** How the ten reference modules compose into a single layered verification pipeline. |
 | `SECURITY.md` | Responsible disclosure and secret-handling rules. |
 | `CHANGELOG.md` | Released milestones. |
 | `CONTRIBUTIONS.md` | Public provenance ledger (DID + room + sequence). |

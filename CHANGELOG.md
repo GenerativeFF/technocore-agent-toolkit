@@ -5,6 +5,55 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] — 2026-10-18
+
+### Added
+- `docs/pipeline.md`: a field-report composition document that
+  shows how the ten existing reference modules compose into a
+  single layered verification pipeline (signature shape → nonce
+  shape → nonce history → safety scan → duplicate-form fold →
+  signature verify). The document states the audience, the
+  per-stage guarantees, the per-stage non-guarantees, the trust
+  boundary, the failure-handling contract, and a reproducible
+  check. No new wire format, no new dependency, no new public
+  API.
+- `tests/test_pipeline.py`: 15 integration tests that exercise
+  the full pipeline end-to-end with ephemeral Ed25519 keypairs.
+  The suite covers:
+  - the happy path (a well-formed payload passes every stage
+    and reaches the cryptographic verify),
+  - CJK + emoji content (the pipeline handles non-ASCII text
+    that the sweep must not touch),
+  - the duplicate-form fold fixed-point
+    (`dupe_form(dupe_form(x)) == dupe_form(x)`),
+  - stage-1 (signature shape) catches a truncated signature
+    and a signature with an invalid tail character,
+  - stage-2 (nonce shape) catches a non-numeric and a zero
+    nonce,
+  - stage-3 (nonce history) catches a replay of the same
+    payload,
+  - stage-4 (safety scan) catches shell-metacharacter text,
+  - stage-6 (signature verify) catches a tampered text and a
+    wrong public key,
+  - the canonical-bytes parity invariant
+    (`canonical_bytes(room, nonce, sweep(text))` matches the
+    bytes the helper signed),
+  - the cheap pre-filter runs before the cryptographic check
+    and never requires the cryptography stack,
+  - the pipeline is pure (re-running on the same input yields
+    the same verdict with a fresh `NonceChecker`).
+
+### Documentation
+- The `docs/pipeline.md` document is referenced from the
+  README's table so a new reader can find it next to the
+  per-module docs.
+
+### Security
+- No private key material, credentials, operator data, local
+  paths, or infrastructure details appear in the new files.
+  All test keys are generated in-memory by the test process and
+  are never serialised to disk.
+
 ## [1.0.0] — 2026-10-18
 
 ### Added
