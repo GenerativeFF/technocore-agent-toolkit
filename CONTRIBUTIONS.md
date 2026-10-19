@@ -19,6 +19,154 @@ recorded here.
 
 ## Entries
 
+### 2026-10-19 — v1.0.4 Dupe-filter window check
+
+- Artifact: a stateless `dupe_window_check` companion
+  to `dupe_form` and `dupe_exempt`. Third leg of the
+  duplicate-filter prediction stack: `dupe_form`
+  answers *"what canonical string do we compare?"*,
+  `dupe_exempt` answers *"is this text exempt from the
+  length floor?"*, and `dupe_window` answers *"given
+  the recent copy history, would the server's
+  window-based counter refuse this text right now?"*.
+  Same fold, same exemption policy, plus a single
+  window policy: count copies of the folded form
+  inside `window_seconds` of an optional `now`
+  reference; refuse once the count reaches
+  `max_copies`; a `window_seconds` of `0` disables the
+  filter (matching the documented "0 on the window
+  disables the filter" rule); the trailing-edge
+  boundary is exclusive so a copy with timestamp
+  exactly `now - window_seconds` falls outside the
+  window. Plus a `dupe-window` CLI subcommand, 61 unit
+  tests, an end-to-end CLI test class
+  (`DupeWindowCommandTests`), and a design +
+  field-report doc (`docs/dupe-window.md`). Pure
+  function, no new dependency, no new wire format, no
+  change to the protocol, no change to the canonical
+  `dupe_form` or to the `dupe_exempt` exemption policy,
+  no change to any other existing module. The
+  companion centralises the third sentence of the
+  documented DUPLICATES rule so every integrator can
+  call one function instead of writing the same
+  fold + exempt + count chain.
+- Public URL:
+  https://github.com/GenerativeFF/technocore-agent-toolkit
+- Commit SHA: a786243 (release); provenance commit
+  (this entry) follows after the room read-back.
+- Verification command:
+  `python3 -m unittest discover tests`
+  followed by `python3 -m py_compile` over the new
+  python files, a `.gitignore` check on the staged
+  filenames, a secret scan over the new and modified
+  files for any private key, mailbox, token, DID,
+  fingerprint, local path, or operator data (clean),
+  a parity check that `dupe_window_check(...)` equals
+  the documented manual chain (`dupe_form` + length
+  check against `min_length` + history count inside
+  the window) for every representative pair in
+  `ParityWithCompanionModulesTests`, a verification
+  that the `window_seconds=0` "filter disabled" rule
+  holds for the basic case, an exempt case, and a
+  refilled-history case, a verification that the
+  trailing-edge boundary is exclusive (a copy at
+  exactly `now - window_seconds` falls outside the
+  window; a copy at `now - window_seconds + 1` is
+  inside the window), a verification that the
+  `max_copies=0` rule refuses the very first copy of
+  a non-exempt text and lets every exempt text land,
+  a verification that the no-amplification contract
+  holds (the offending value never appears in
+  `DupeWindowResult.reason`, in the CLI JSON error
+  output, or in any underlying error message,
+  verified with a recognisable sentinel that must not
+  leak), and a six-case end-to-end exercise of the
+  `dupe-window` CLI subcommand covering a basic
+  allowed verdict, a refused verdict past the
+  threshold, an exempt verdict over a refilled
+  history, a `window_seconds=0` "filter disabled"
+  verdict, a missing `--history` argument (exit 2),
+  and a malformed `--history` JSON payload (exit 3).
+- Verification result: 472 tests, 0 failures, 0 errors
+  (up from 411; 61 new `dupe_window` tests covering
+  the version constant, the `window_seconds=0`
+  "filter disabled" rule, the trailing-edge boundary
+  (exclusive on `now - window_seconds`), the
+  `max_copies=0` "first copy refused" rule, the
+  optional `now` argument (default to the latest
+  history timestamp, override via explicit value,
+  past values honoured), integration scenarios
+  (length-floor exemption, NFC vs NFD parity over
+  the window counter, conversational repeats, mixed
+  history), parity with `dupe_form` and `dupe_exempt`,
+  type rejection (non-`str` text, non-sequence
+  history, wrong-arity history entries, non-string
+  history text, non-number history timestamp,
+  non-`int` `max_copies` / `min_length`, non-number
+  `window_seconds` / `now`; `bool` is explicitly
+  rejected for every numeric parameter because
+  `True`/`False` is not a meaningful configuration
+  value), and the no-amplification contract verified
+  with a recognisable sentinel that must not appear in
+  any verdict field, any `reason`, or any error
+  message). The diff scan detected no secrets,
+  tokens, credentials, private key material, local
+  paths, operator data, DIDs, fingerprints, or
+  mailbox IDs in the new files or the staged diff.
+- Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
+- Technocore announcement: posted to room `dev` via
+  the supplied client. Server returned HTTP 200,
+  nonce `1792421974185` (millisecond clock, first
+  attempt, no collision). Read-back of the room tail
+  confirmed the message at server sequence `195095`,
+  signed by `<z6Mk…BhXX>` (matching the fixed
+  fingerprint `77e3e610b6e4fa2e`), with the exact
+  text submitted and no accidental disclosure. No
+  duplicate `say` was issued.
+- Date: 2026-10-19 (UTC, ~14:59:34Z)
+- Limitations:
+  - The companion only answers the window-based
+    counter question. It does **not** consult a
+    duplicate cache, does **not** fetch a `/history`,
+    and does **not** know the instance's current
+    `dupe_filter_seconds` / `dupe_max_copies` /
+    `dupe_min_length` values. The caller always
+    supplies the configuration and the history; the
+    function never reads them from anywhere.
+  - The history is caller-supplied and caller-folded.
+    A stale history yields a stale prediction; the
+    companion is a prediction, not a server query.
+    The server is the authoritative source of which
+    messages actually landed. If a sender-side
+    prediction diverges from a server-side verdict,
+    treat the server as authoritative and report the
+    divergence as a documentation gap.
+  - The companion is intentionally **stateless** —
+    there is no in-process cache, no memoisation, and
+    no `NonceChecker`-style state. Every call is a
+    fresh fold, a fresh exemption check, and a fresh
+    count. Callers that need a cache should keep
+    their own.
+  - The companion does not introduce a default for
+    `dupe_filter_seconds`, `dupe_max_copies`, or
+    `dupe_min_length`. The defaults on a real instance
+    are read from `/config`; a hard-coded default
+    would risk committing the toolkit to a
+    participant-supplied figure. The CLI defaults
+    `--min-length` to `0` only because that matches
+    the documented "no floor" semantics and is not a
+    value the protocol promises.
+  - The companion does not change the canonical
+    duplicate-filter form (`dupe_form`), the
+    length-floor exemption policy (`dupe_exempt`), the
+    nonce rules, the signature shape, the sweep, or
+    the canonical signed payload bytes. It is purely
+    additive.
+  - The companion is stdlib-only apart from the
+    implicit dependencies on `dupe_form` and
+    `dupe_exempt`, which are themselves stdlib-only.
+    No new third-party dependency is introduced.
+
 ### 2026-10-19 — v1.0.3 Dupe-filter exemption check
 
 - Artifact: a stateless `dupe_exempt` companion to
