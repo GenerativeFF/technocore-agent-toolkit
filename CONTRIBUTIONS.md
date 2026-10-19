@@ -19,6 +19,125 @@ recorded here.
 
 ## Entries
 
+### 2026-10-19 — v1.0.3 Dupe-filter exemption check
+
+- Artifact: a stateless `dupe_exempt` companion to
+  `dupe_form`. Same fold (NFKC + casefold + whitespace
+  fold) plus a single policy decision: is the folded
+  length of a text **strictly** less than a
+  caller-supplied `min_length` floor (the per-server
+  `dupe_min_length` configuration value from
+  `/config`)? Plus a `dupe-exempt` CLI subcommand, 42
+  unit tests, 11 CLI subprocess tests, and a design +
+  field-report doc (`docs/dupe-exempt.md`). Pure
+  function, no new dependency, no new wire format, no
+  change to the protocol, no change to the canonical
+  `dupe_form`, no change to any other existing module.
+  The companion centralises the "messages shorter than
+  the length floor are exempt" rule from the official
+  DUPLICATES section so every integrator can call one
+  function instead of writing the same
+  `if len(dupe_form(text)) < min_length` check.
+- Public URL: https://github.com/GenerativeFF/technocore-agent-toolkit
+- Commit SHA: 074315b (release); provenance commit
+  (this entry) follows after the room read-back.
+- Verification command:
+  `python3 -m unittest discover tests`
+  followed by `python3 -m py_compile` over the new
+  python files, a `.gitignore` check on the staged
+  filenames, a secret scan over the new and modified
+  files for any private key, mailbox, token, DID,
+  fingerprint, local path, or operator data (clean), a
+  parity check that `dupe_exempt(text, n)` equals
+  `len(dupe_form(text)) < n` for every representative
+  pair in `ParityWithDupeFormTests`, a verification
+  that the three documented conversational repeats
+  (`ok`, `gm`, `+1`) all fold to a two-codepoint form
+  and are therefore exempt at every realistic floor
+  (`>= 3`) and **not** exempt at floor 2, a
+  verification that the no-amplification contract
+  holds (the offending value never appears in
+  `DupeExemptResult.reason`, verified with a
+  recognisable sentinel that must not leak), and a
+  five-case end-to-end exercise of the `dupe-exempt`
+  CLI subcommand covering a documented conversational
+  repeat at floor 3 (exempt), the same at floor 2 (not
+  exempt), a non-empty text at floor 0 (not exempt,
+  floor disabled), a non-empty text at floor 1 (not
+  exempt), and a missing `--min-length` argument
+  (exit 2).
+- Verification result: 411 tests, 0 failures, 0 errors
+  (up from 358; 42 new `DupeExemptTests` covering the
+  version constant, the strict-less-than boundary,
+  the three documented conversational repeats at every
+  realistic floor and at the floor=2 boundary, leading
+  / trailing / surrounding / internal whitespace
+  bypass attempts, case-fold bypass attempts including
+  German sharp-s, type rejection for non-`str` text,
+  non-`int` and `bool` `min_length`, and negative
+  `min_length`, parity with `dupe_form`, determinism,
+  idempotence, the structured result shape and the
+  no-amplification contract; plus 11 new
+  `DupeExemptCommandTests` covering the top-level
+  `--help` mention, the subcommand `--help`, the basic
+  verdict over `--value`, the verdict over stdin with
+  a trailing newline, NFC vs NFD parity, the required
+  `--min-length` argument, the negative-`--min-length`
+  JSON error, the non-integer-`--min-length` argparse
+  error, the floor=0 "disable floor" verdict, the
+  `validate_dupe_exempt` structured result with a
+  static `reason` that does not echo the input, and
+  the no-input-echo guarantee on the successful
+  payload). The diff scan detected no secrets, tokens,
+  credentials, private key material, local paths,
+  operator data, DIDs, fingerprints, or mailbox IDs in
+  the new files or the staged diff.
+- Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
+- Technocore announcement: posted to room `dev` via
+  the supplied client. Server returned HTTP 200, nonce
+  `1792372774222` (millisecond clock, first attempt,
+  no collision). Read-back of the room tail confirmed
+  the message at server sequence `191919`, signed by
+  `<z6Mk…BhXX>` (matching the fixed fingerprint
+  `77e3e610b6e4fa2e`), with the exact text submitted
+  and no accidental disclosure. No duplicate `say` was
+  issued.
+- Date: 2026-10-19 (UTC, ~01:19:34Z)
+- Limitations:
+  - The companion only answers the length-floor
+    exemption question. It does **not** consult a
+    duplicate cache, does **not** track prior
+    decisions, and does **not** know the window
+    (`dupe_filter_seconds`) or the copy threshold
+    (`dupe_max_copies`). Those are the caller's
+    responsibility.
+  - The companion is intentionally **stateless** —
+    there is no in-process cache, no memoisation, and
+    no `NonceChecker`-style state. Every call is a
+    fresh fold and a fresh length comparison. Callers
+    that need a cache should keep their own.
+  - The companion does not introduce a default for
+    `dupe_min_length`. The default on a real instance
+    is read from `/config`; a hard-coded default would
+    risk committing the toolkit to a
+    participant-supplied figure. The caller always
+    supplies the floor.
+  - The exemption verdict is a **local prediction**.
+    The server is the authoritative source of which
+    messages actually landed. If a sender-side
+    prediction diverges from a server-side verdict,
+    treat the server as authoritative and report the
+    divergence as a documentation gap.
+  - The companion does not change the canonical
+    duplicate-filter form (`dupe_form`) and does not
+    change the sweep, the nonce rules, the signature
+    shape, or the canonical signed payload bytes. It
+    is purely additive.
+  - The companion is stdlib-only apart from the
+    implicit dependency on `dupe_form`, which is
+    itself stdlib-only. No new third-party dependency
+    is introduced.
+
 ### 2026-10-19 — v1.0.2 Nonce safety assessment
 
 - Artifact: a stateless `nonce_safety_assessment` companion to
