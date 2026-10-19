@@ -150,6 +150,13 @@ from technocore_dupe_exempt import (  # noqa: E402
     dupe_exempt as dupe_exempt_check,
     validate_dupe_exempt,
 )
+from technocore_dupe_window import (  # noqa: E402
+    DUPE_WINDOW_VERSION,
+    DupeWindowError,
+    DupeWindowResult,
+    dupe_window_check,
+    validate_dupe_window,
+)
 from technocore_verify import (  # noqa: E402
     VerifyResult,
     VerifierError,
@@ -550,6 +557,144 @@ def cmd_dupe_form(args: argparse.Namespace) -> NoReturn:
     )
 
 
+def _read_history_arg(args: argparse.Namespace) -> list:
+    """Return the history list from --history JSON file or stdin.
+
+    The history is a JSON array of 2-element arrays,
+    ``[[folded_text_1, ts_1], [folded_text_2, ts_2], ...]``,
+    where ``folded_text`` is a string and ``ts`` is a number
+    (Unix seconds). The CLI does not fold the history
+    entries; the caller is expected to supply pre-folded
+    forms (via the ``dupe-form`` subcommand or the Python
+    :func:`dupe_form` API). This keeps the CLI focused on
+    the window check and avoids duplicating the fold logic
+    in the shell pipeline.
+    """
+    path = getattr(args, "history", None)
+    if path is None or path == "-":
+        raw = sys.stdin.read()
+    elif not isinstance(path, str):
+        _fail("--history must be a string path", 2)
+    else:
+        if not os.path.isfile(path):
+            _fail(f"--history path does not exist or is not a file: {path}", 2)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                raw = fh.read()
+        except OSError as exc:
+            _fail(f"could not read --history file: {exc}", 2)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        _fail(f"--history is not valid JSON: {exc.msg}", 3)
+    if not isinstance(data, list):
+        _fail("--history must be a JSON array of [folded_text, timestamp] pairs", 3)
+    return data
+
+
+def _result_to_dict_dupe_window(result: DupeWindowResult) -> dict[str, Any]:
+    """Convert a ``DupeWindowResult`` to a JSON-friendly dict.
+
+    On a successful run, the JSON carries ``refused``
+    (whether the text would be refused by the server's
+    window-based counter), ``folded`` (the canonical
+    comparison form), ``copies_in_window`` (the number of
+    matching history entries inside the window), the
+    supplied ``max_copies`` and ``window_seconds``, and
+    the contract ``version``. On a failed run, only
+    ``valid: false`` and a static ``reason`` are returned;
+    no field of the original input is echoed.
+    """
+    out: dict[str, Any] = {"valid": bool(result.valid), "version": int(DUPE_WINDOW_VERSION)}
+    if result.valid:
+        out["refused"] = bool(result.refused)
+        out["folded"] = result.folded
+        out["copies_in_window"] = int(result.copies_in_window) if result.copies_in_window is not None else None
+        out["max_copies"] = int(result.max_copies) if result.max_copies is not None else None
+        out["window_seconds"] = (
+            float(result.window_seconds) if result.window_seconds is not None else None
+        )
+    else:
+        out["reason"] = result.reason
+    return out
+
+
+def cmd_dupe_window(args: argparse.Namespace) -> NoReturn:
+    # The text to assess is read from --value or stdin
+    # (the same convention as the ``dupe-form`` and
+    # ``dupe-exempt`` commands). The history is read
+    # from --history or stdin (the same convention as
+    # ``--file``). The window check is a pure function
+    # over its inputs: it does not sign, POST, fetch,
+    # decode, or otherwise transmit the text or the
+    # history, and it does not read the
+    # ``dupe_filter_seconds`` / ``dupe_max_copies`` /
+    # ``dupe_min_length`` values from any server. The
+    # caller owns every configuration value; this CLI
+    # just enforces the documented "copies past the
+    # threshold inside the window are refused" rule.
+    value = getattr(args, "value", None)
+    if value is None:
+        value = sys.stdin.read()
+    elif not isinstance(value, str):
+        _fail("--value must be a string", 2)
+    # Strip exactly one trailing newline so piping a
+    # string into the CLI does not add a bogus
+    # codepoint. A pre-existing \n in the middle of the
+    # input is preserved and folded by the whitespace
+    # step in :func:`dupe_form`.
+    if value.endswith("\n") and len(value) >= 1:
+        value = value[:-1]
+    # ``--window-seconds`` and ``--max-copies`` are
+    # parsed by ``type=...`` so a wrong type already
+    # exits 2 with an argparse error before we get here;
+    # we still defensively guard against ``bool`` and
+    # negative values so the CLI matches the Python
+    # API's error surface.
+    window_seconds = args.window_seconds
+    if isinstance(window_seconds, bool) or not isinstance(window_seconds, (int, float)):
+        _fail("--window-seconds must be a non-negative number", 2)
+    if window_seconds < 0:
+        _fail("--window-seconds must be a non-negative number", 2)
+    max_copies = args.max_copies
+    if isinstance(max_copies, bool) or not isinstance(max_copies, int):
+        _fail("--max-copies must be a non-negative int", 2)
+    if max_copies < 0:
+        _fail("--max-copies must be a non-negative int", 2)
+    min_length = getattr(args, "min_length", 0)
+    if isinstance(min_length, bool) or not isinstance(min_length, int):
+        _fail("--min-length must be a non-negative int", 2)
+    if min_length < 0:
+        _fail("--min-length must be a non-negative int", 2)
+    # ``--now`` is optional. When omitted, the function
+    # uses the latest timestamp in the history (or
+    # defaults to 0.0 when both are absent).
+    now = getattr(args, "now", None)
+    if now is not None and (isinstance(now, bool) or not isinstance(now, (int, float))):
+        _fail("--now must be a number or omitted", 2)
+    history = _read_history_arg(args)
+    try:
+        result = validate_dupe_window(
+            value,
+            history,
+            window_seconds=window_seconds,
+            max_copies=max_copies,
+            min_length=min_length,
+            now=now,
+        )
+    except (TypeError, ValueError) as exc:
+        _fail(f"dupe-window failed: {exc}", 3)
+    except DupeWindowError as exc:
+        _fail(f"dupe-window failed: {exc}", 3)
+    _emit(
+        {
+            "ok": True,
+            "command": "dupe-window",
+            "result": _result_to_dict_dupe_window(result),
+        }
+    )
+
+
 def cmd_dupe_exempt(args: argparse.Namespace) -> NoReturn:
     # The text to assess is read from --value or stdin (the
     # same convention as the ``dupe-form`` command). The
@@ -801,6 +946,94 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_dupe_exempt.set_defaults(func=cmd_dupe_exempt)
+
+    p_dupe_window = sub.add_parser(
+        "dupe-window",
+        help=(
+            "Structured verdict of the dupe-filter window "
+            "policy. Returns whether the canonical "
+            "duplicate-filter form of --value would be "
+            "refused by a server whose --window-seconds, "
+            "--max-copies, and --min-length are the "
+            "supplied values, given the supplied "
+            "--history. Pure function; does not read any "
+            "configuration from any server."
+        ),
+    )
+    p_dupe_window.add_argument(
+        "--value",
+        "-v",
+        default=None,
+        help=(
+            "Text to assess. If omitted, the value is read "
+            "from stdin. Exactly one trailing newline is "
+            "stripped so piping a value works."
+        ),
+    )
+    p_dupe_window.add_argument(
+        "--history",
+        default=None,
+        help=(
+            "Path to a JSON file containing the recent "
+            "copy history as a JSON array of "
+            "[folded_text, timestamp] pairs. If omitted "
+            "or set to '-', the history is read from "
+            "stdin. The CLI does not fold the history "
+            "entries; supply pre-folded forms (via the "
+            "dupe-form subcommand or the Python "
+            "dupe_form() API)."
+        ),
+    )
+    p_dupe_window.add_argument(
+        "--window-seconds",
+        type=float,
+        required=True,
+        help=(
+            "Window length in seconds. Must be a "
+            "non-negative number. ``0`` disables the "
+            "filter (no text is ever refused). The "
+            "caller owns this value; this CLI does not "
+            "read it from any server."
+        ),
+    )
+    p_dupe_window.add_argument(
+        "--max-copies",
+        type=int,
+        required=True,
+        help=(
+            "Copy-count threshold. The first ``max_copies`` "
+            "copies of a folded form inside the window "
+            "land, and the ``(max_copies + 1)``-th is "
+            "refused. Must be a non-negative integer. The "
+            "caller owns this value; this CLI does not "
+            "read it from any server."
+        ),
+    )
+    p_dupe_window.add_argument(
+        "--min-length",
+        type=int,
+        default=0,
+        help=(
+            "Length floor below which the dupe-filter is "
+            "exempt. Must be a non-negative integer. "
+            "``0`` disables the floor (no exemption). The "
+            "caller owns this value; this CLI does not "
+            "read it from any server. Defaults to 0."
+        ),
+    )
+    p_dupe_window.add_argument(
+        "--now",
+        type=float,
+        default=None,
+        help=(
+            "Optional reference time for the window "
+            "check, in Unix seconds. When omitted, the "
+            "function uses the latest timestamp in "
+            "--history (or 0.0 when --history is also "
+            "absent). Must be a number when supplied."
+        ),
+    )
+    p_dupe_window.set_defaults(func=cmd_dupe_window)
 
     return parser
 

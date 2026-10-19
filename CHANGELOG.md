@@ -5,6 +5,118 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.4] — 2026-10-19
+
+### Added
+- `src/technocore_dupe_window.py`: a stateless `dupe_window_check`
+  companion to `dupe_form` and `dupe_exempt`. Pure function (no
+  state, no network I/O) that returns `True` when a text would be
+  refused by the server's window-based duplicate-filter counter
+  given the caller-supplied recent copy history, the
+  caller-supplied window, the caller-supplied copy threshold,
+  the caller-supplied length floor, and an optional `now`
+  reference. The companion also exposes a `validate_dupe_window`
+  wrapper that returns a structured `DupeWindowResult` with:
+  - `valid` — True only when every input is well-typed and
+    `window_seconds` / `max_copies` / `min_length` are
+    non-negative;
+  - `refused` — the verdict (True only when the text is not
+    exempt and the count of matching history entries inside
+    the window has reached `max_copies`);
+  - `folded` — the canonical duplicate-filter form of `text`;
+  - `copies_in_window` — the number of history entries whose
+    folded form equals `folded` and whose timestamp falls
+    inside `window_seconds` of `now` (exclusive on the
+    trailing edge);
+  - `max_copies`, `window_seconds` — echoed back because they
+    are caller-supplied configuration values;
+  - `reason` — a static, parameter-free string set only when
+    `valid` is False; never echoes the input value.
+  Module-level constant `DUPE_WINDOW_VERSION = 1` is exported
+  for callers that want to pin against it.
+- `scripts/technocore_cli.py`: a new `dupe-window` subcommand
+  that wraps the companion. Reads the text from `--value` or
+  stdin (one trailing newline stripped) and reads the history
+  from `--history` (a path to a JSON file) or stdin
+  (`--history -`, the same convention as `--file`). Accepts
+  required `--window-seconds` (non-negative number) and
+  `--max-copies` (non-negative integer), optional
+  `--min-length` (non-negative integer, defaults to `0` for
+  "no floor"), and optional `--now` (Unix seconds). Emits the
+  same one-line JSON contract as the rest of the CLI; exit
+  codes match (`0` for success, `2` for argument validation,
+  `3` for content validation).
+- `docs/dupe-window.md`: a design + field report describing
+  the problem (per-server `dupe_filter_seconds` /
+  `dupe_max_copies` / `dupe_min_length` window policy), the
+  interface, the history shape, the CLI surface, the
+  security boundary, the acceptance tests, and the
+  limitations. The companion does not change the protocol
+  and does not change the canonical duplicate-filter form
+  or the length-floor exemption policy; it only answers
+  the "would this text be refused by the window-based
+  counter right now?" question with a stable verdict.
+
+### Tests
+- `tests/test_dupe_window.py`: 61 new unit tests covering
+  the version constant, the `window_seconds=0` "filter
+  disabled" rule, the trailing-edge boundary (exclusive on
+  `now - window_seconds`), the `max_copies=0` "first copy
+  refused" rule, the optional `now` argument (default to
+  the latest history timestamp, override via explicit
+  value, past values honoured), integration scenarios
+  (length-floor exemption, NFC vs NFD parity over the
+  window counter, conversational repeats, mixed-history
+  cases), parity with `dupe_form` and `dupe_exempt`, type
+  rejection (non-`str` text, non-sequence history,
+  wrong-arity history entries, non-string history text,
+  non-number history timestamp, non-`int` `max_copies` /
+  `min_length`, non-number `window_seconds` / `now`; `bool`
+  is explicitly rejected for every numeric parameter
+  because `True`/`False` is not a meaningful configuration
+  value), and the no-amplification contract (verified with
+  a recognisable sentinel that must not appear in any
+  verdict field, any `reason`, or any error message).
+- `tests/test_cli.py`: a new `DupeWindowCommandTests`
+  class exercising the subcommand end-to-end: the
+  top-level `--help` mention, the subcommand `--help`,
+  the basic verdict over `--value` and `--history`, the
+  same verdict over stdin with a trailing newline, the
+  history-from-stdin (`--history -`) path, the
+  history-from-JSON-file path, a missing `--history`
+  rejected at exit 2, a malformed `--history` rejected
+  at exit 3 with an error that does not echo the
+  offending bytes, a wrong-arity history entry rejected
+  at exit 3 with a static message, a negative
+  `--window-seconds` / `--max-copies` / `--min-length`
+  rejected at exit 2 with a JSON error that does not
+  echo the offending value, a non-integer
+  `--max-copies` rejected at exit 2 by argparse, the
+  `window_seconds=0` "filter disabled" verdict, the
+  `min-length` exemption parity with the `dupe-exempt`
+  subcommand, and the no-input-echo guarantee on the
+  successful payload.
+
+### Security
+- The companion never echoes the input `text` on any
+  channel. `folded` is the *transformed* output;
+  `window_seconds`, `max_copies`, and `min_length` are
+  caller-supplied configuration values; `reason` is a
+  static string.
+- The companion does not consult any server-side cache,
+  read `/config`, fetch `/history`, perform network I/O,
+  perform subprocess I/O, or perform filesystem I/O
+  beyond reading the optional `--value` / `--history` /
+  stdin.
+- The companion does not introduce a default for
+  `dupe_filter_seconds`, `dupe_max_copies`, or
+  `dupe_min_length`. The CLI defaults `--min-length` to
+  `0` only because that matches the documented "no
+  floor" semantics and is not a value the protocol
+  promises. The window and the threshold are always
+  required because the documented "0 on the window
+  disables the filter" rule would make a default unsafe.
+
 ## [1.0.3] — 2026-10-19
 
 ### Added
