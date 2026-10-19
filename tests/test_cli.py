@@ -65,9 +65,10 @@ class HelpTests(unittest.TestCase):
         self.assertIn("nonce-check", out)
         self.assertIn("chunk", out)
         self.assertIn("dupe-form", out)
+        self.assertIn("dupe-exempt", out)
 
     def test_subcommand_help_exits_zero(self):
-        for sub in ("scan", "verify", "nonce-check", "chunk", "dupe-form"):
+        for sub in ("scan", "verify", "nonce-check", "chunk", "dupe-form", "dupe-exempt"):
             with self.subTest(sub=sub):
                 rc, out, _ = _run([sub, "--help"])
                 self.assertEqual(rc, 0, msg=out)
@@ -821,6 +822,147 @@ class DupeFormCommandTests(unittest.TestCase):
         # without reading the docs.
         self.assertIn("comparison", out.lower())
         self.assertIn("signed", out.lower())
+
+
+class DupeExemptCommandTests(unittest.TestCase):
+    """Subprocess tests for the ``dupe-exempt`` subcommand (v1.0.3)."""
+
+    def test_help_top_mentions_dupe_exempt(self):
+        rc, out, _ = _run(["--help"])
+        self.assertEqual(rc, 0)
+        self.assertIn("dupe-exempt", out)
+
+    def test_dupe_exempt_help_exits_zero(self):
+        rc, out, _ = _run(["dupe-exempt", "--help"])
+        self.assertEqual(rc, 0, msg=out)
+        self.assertIn("--value", out)
+        self.assertIn("--min-length", out)
+
+    def test_dupe_exempt_exempt_at_realistic_floor(self):
+        # "ok" folds to "ok" (length 2); at min-length 3 the
+        # documented conversational repeat IS exempt.
+        rc, out, err = _run(
+            ["dupe-exempt", "--value", "ok", "--min-length", "3"]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        payload = _parse_stdout_line(out)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "dupe-exempt")
+        result = payload["result"]
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["exempt"])
+        self.assertEqual(result["folded"], "ok")
+        self.assertEqual(result["folded_length"], 2)
+        self.assertEqual(result["min_length"], 3)
+        self.assertEqual(result["version"], 1)
+
+    def test_dupe_exempt_not_exempt_at_equal_floor(self):
+        # "ok" folds to length 2; at min-length 2 the rule
+        # is "strictly less than", so it is NOT exempt.
+        rc, out, err = _run(
+            ["dupe-exempt", "--value", "ok", "--min-length", "2"]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertFalse(result["exempt"])
+        self.assertEqual(result["folded_length"], 2)
+        self.assertEqual(result["min_length"], 2)
+
+    def test_dupe_exempt_not_exempt_at_zero_floor_for_nonempty(self):
+        # A floor of 0 disables the floor; every non-empty
+        # text has folded length >= 1, which is NOT strictly
+        # less than 0, so it is NOT exempt.
+        rc, out, err = _run(
+            ["dupe-exempt", "--value", "ok", "--min-length", "0"]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertFalse(result["exempt"])
+
+    def test_dupe_exempt_via_stdin(self):
+        # The text can be supplied via stdin; exactly one
+        # trailing newline is stripped so piping a value
+        # works.
+        rc, out, err = _run(
+            ["dupe-exempt", "--min-length", "3"],
+            stdin_text="ok\n",
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["exempt"])
+        self.assertEqual(result["folded"], "ok")
+
+    def test_dupe_exempt_folds_nfc_and_nfd_to_same_verdict(self):
+        # The fold collapses NFC and NFD of the same word to
+        # the same folded form, so the exemption verdict must
+        # be identical for both.
+        import unicodedata  # local import keeps the top of
+        # the file independent of this test
+        nfc = "Vi\u1ec7t"  # 4 codepoints
+        nfd = unicodedata.normalize("NFD", nfc)  # 6 codepoints
+        rc1, out1, _ = _run(
+            ["dupe-exempt", "--value", nfc, "--min-length", "5"]
+        )
+        rc2, out2, _ = _run(
+            ["dupe-exempt", "--value", nfd, "--min-length", "5"]
+        )
+        self.assertEqual(rc1, 0)
+        self.assertEqual(rc2, 0)
+        r1 = _parse_stdout_line(out1)["result"]
+        r2 = _parse_stdout_line(out2)["result"]
+        self.assertEqual(r1["exempt"], r2["exempt"])
+        self.assertEqual(r1["folded"], r2["folded"])
+        self.assertEqual(r1["folded_length"], r2["folded_length"])
+
+    def test_dupe_exempt_missing_min_length_fails(self):
+        # --min-length is required; omitting it must exit 2
+        # (argparse validation error) and not emit a
+        # verdict.
+        rc, _, err = _run(["dupe-exempt", "--value", "ok"])
+        self.assertEqual(rc, 2, msg=err)
+
+    def test_dupe_exempt_negative_min_length_fails(self):
+        # A negative --min-length is rejected at the CLI
+        # boundary with exit 2.
+        rc, _, err = _run(
+            ["dupe-exempt", "--value", "ok", "--min-length", "-1"]
+        )
+        self.assertEqual(rc, 2, msg=err)
+        # The error JSON must not echo the offending value.
+        lines = err.strip().splitlines()
+        self.assertTrue(lines)
+        err_obj = json.loads(lines[-1])
+        self.assertFalse(err_obj["ok"])
+        self.assertNotIn("-1", err_obj["error"])
+
+    def test_dupe_exempt_non_int_min_length_fails(self):
+        # A non-integer --min-length is rejected by argparse
+        # with exit 2 before our handler runs. argparse
+        # writes its own plain-text usage error to stderr
+        # (not the JSON error envelope the cmd_* handlers
+        # write), so we only assert on the exit code here;
+        # the JSON-parseable error surface is covered by
+        # the negative-min-length test below.
+        rc, _, err = _run(
+            ["dupe-exempt", "--value", "ok", "--min-length", "three"]
+        )
+        self.assertEqual(rc, 2, msg=err)
+        self.assertTrue(err.strip(), "expected a usage error on stderr")
+
+    def test_dupe_exempt_payload_does_not_echo_input(self):
+        # The successful payload must not contain the input
+        # value in any field. The CLI surfaces the *folded*
+        # form, the folded length, the min_length, and the
+        # verdict; it never surfaces the original input.
+        rc, out, _ = _run(
+            ["dupe-exempt", "--value", "Hello World", "--min-length", "3"]
+        )
+        self.assertEqual(rc, 0)
+        payload = _parse_stdout_line(out)
+        self.assertNotIn("Hello World", json.dumps(payload))
 
 
 if __name__ == "__main__":

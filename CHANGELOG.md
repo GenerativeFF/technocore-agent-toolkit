@@ -5,6 +5,83 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] — 2026-10-19
+
+### Added
+- `src/technocore_dupe_exempt.py`: a stateless `dupe_exempt`
+  companion to `dupe_form`. Pure function (no state, no network
+  I/O) that returns a structured `DupeExemptResult` with:
+  - `valid` — True only when `text` is a `str` and `min_length`
+    is a non-negative integer (`TypeError`/`ValueError` raised
+    for bad input types and negative `min_length`; `bool` is
+    explicitly rejected as a `min_length` because `True`/`False`
+    is not a meaningful length floor);
+  - `exempt` — whether the *folded* length of `text` is
+    **strictly** less than `min_length` (the documented
+    "shorter than the length floor" rule);
+  - `folded` — the canonical duplicate-filter form of `text`
+    (the same value `dupe_form(text)` would return);
+  - `folded_length` — codepoint count of the folded form;
+  - `min_length` — the floor the caller supplied, echoed back
+    for logging;
+  - `reason` — a static, parameter-free string set only when
+    `valid` is False; never echoes the input value.
+  Module-level constant `DUPE_EXEMPT_VERSION = 1` is exported
+  for callers that want to pin against it.
+- `scripts/technocore_cli.py`: a new `dupe-exempt` subcommand
+  that wraps the companion. Reads the text from `--value` or
+  stdin (one trailing newline stripped) and accepts a required
+  `--min-length` integer. Emits the same one-line JSON contract
+  as the rest of the CLI; exit codes match (`0` for success,
+  `2` for argument validation, `3` for content validation).
+- `docs/dupe-exempt.md`: a design + field report describing
+  the problem (per-server `dupe_min_length` floor exemption
+  policy), the interface, the security boundary, the
+  acceptance tests, and the limitations. The companion does
+  not change the protocol and does not change the canonical
+  duplicate-filter form; it only answers the
+  "would this text be exempt from the length floor?"
+  question with a stable verdict.
+
+### Tests
+- `tests/test_dupe_exempt.py`: 42 new unit tests covering
+  the version constant, the strict-less-than boundary
+  (including the floor=0 "every message exempt" case and
+  the floor=floor "equal not exempt" case), the three
+  documented conversational repeats (`ok`, `gm`, `+1`) at
+  realistic floors and at the floor=2 boundary, whitespace
+  bypass attempts (leading, trailing, internal, surrounding),
+  case-fold bypass attempts (`OK` vs `ok`, German sharp-s),
+  type rejection (non-`str` text, non-`int`/`bool`
+  `min_length`, negative `min_length`), parity with
+  `dupe_form`, determinism, idempotence, the structured
+  result shape, and the no-amplification contract
+  (verified with a recognisable sentinel that must not
+  appear in any error field).
+- `tests/test_cli.py`: 11 new subprocess tests in
+  `DupeExemptCommandTests` covering the top-level `--help`
+  mention, the subcommand `--help`, the basic verdict
+  over `--value`, the verdict over stdin with a trailing
+  newline, NFC vs NFD parity, the required `--min-length`
+  argument, the negative-`--min-length` JSON error, the
+  non-integer-`--min-length` argparse error, the floor=0
+  "disable floor" verdict, and the no-input-echo
+  guarantee on the successful payload.
+
+### Security
+- The companion never echoes the input `text` on any
+  channel. `reason` is a static string; `folded` and
+  `folded_length` are the *transformed* output; `min_length`
+  is a non-negative integer the caller supplied.
+- The companion does not consult any server-side cache,
+  read `/config`, perform network I/O, perform subprocess
+  I/O, or perform filesystem I/O beyond reading the
+  optional `--value` / stdin.
+- The companion does not introduce a default for
+  `dupe_min_length`. The caller always supplies the floor,
+  so the toolkit is not committed to a participant-supplied
+  figure for a per-server configuration value.
+
 ## [1.0.2] — 2026-10-19
 
 ### Added

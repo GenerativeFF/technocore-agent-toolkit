@@ -63,6 +63,21 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
   every per-stage failure mode, the canonical-bytes parity
   invariant, the cheap-pre-filter ordering, and the
   determinism of the composition.
+- **v1.0.3** — Dupe-filter exemption check. Pure-function
+  companion to the duplicate-filter canonical form: returns
+  whether the folded length of a text is strictly less than a
+  caller-supplied `min_length` floor (the per-server
+  `dupe_min_length` config value), with a structured
+  `DupeExemptResult` and a `dupe-exempt` CLI subcommand. The
+  companion centralises the "messages shorter than the length
+  floor are exempt" rule from the official DUPLICATES section
+  so every integrator can call one function instead of writing
+  the same `if len(dupe_form(text)) < min_length` check.
+  Stateless, no new dependency, no new wire format, no change
+  to `dupe_form` or any other existing module. Includes a
+  design doc (`docs/dupe-exempt.md`), 42 unit tests
+  (`tests/test_dupe_exempt.py`), and 11 CLI subprocess tests
+  (`tests/test_cli.py::DupeExemptCommandTests`).
 
 ## Why
 
@@ -86,6 +101,7 @@ implementations can stay byte-for-byte compatible.
 | `tests/test_sweep.py` | **NEW:** Unit tests for the canonical sweep (every codepoint, every boundary). |
 | `tests/test_nonce.py` | Unit tests for the nonce/replay checker + 23 tests for the safety assessment companion. |
 | `tests/test_scanner.py` | Unit tests for the safe-room scanner. |
+| `tests/test_dupe_exempt.py` | **NEW:** 42 unit tests for the dupe-filter exemption companion (boundary, conversational repeats, whitespace / case-fold bypass attempts, type rejection, parity with `dupe_form`, structured result, no amplification). |
 | `tests/test_pipeline.py` | **NEW:** End-to-end integration test for the full layered pipeline. |
 | `vectors/verifier_cases.json` | Sanitized golden vectors: only public material. |
 | `vectors/nonce_cases.json` | **NEW:** Sanitized nonce test cases. |
@@ -93,13 +109,15 @@ implementations can stay byte-for-byte compatible.
 | `scripts/gen_vectors.py` | Regenerates ``vectors/verifier_cases.json``. |
 | `scripts/gen_nonce_vectors.py` | **NEW:** Generates ``vectors/nonce_cases.json``. |
 | `scripts/gen_scanner_vectors.py` | **NEW:** Generates ``vectors/scanner_cases.json``. |
-| `scripts/technocore_cli.py` | **NEW:** Stdlib-only CLI shim with `scan`, `verify`, and `nonce-check` subcommands. |
+| `src/technocore_dupe_exempt.py` | **NEW:** Pure-function `dupe_exempt` companion to `dupe_form` — the per-server `dupe_min_length` exemption policy in one testable function. |
+| `scripts/technocore_cli.py` | **NEW:** Stdlib-only CLI shim with `scan`, `verify`, `nonce-check`, `nonce-safety`, `chunk`, `sig-shape`, `dupe-form`, and `dupe-exempt` subcommands. |
 | `docs/nonce-safety.md` | **NEW:** Design + field report for the nonce safety assessment (float53 fit, entropy bit length, limitations). |
 | `docs/protocol-notes.md` | Canonical signed-payload format reference. |
 | `docs/threat-model.md` | What the verifier does and does not guarantee. |
 | `docs/scanner-design.md` | Design notes for the safe-room scanner. |
 | `docs/vectors-format.md` | **NEW:** Schema for test vector files. |
 | `docs/dupe-form.md` | **NEW:** Design notes for the duplicate-filter canonical form. |
+| `docs/dupe-exempt.md` | **NEW:** Design + field report for the dupe-filter length-floor exemption policy. |
 | `docs/pipeline.md` | **NEW:** How the ten reference modules compose into a single layered verification pipeline. |
 | `SECURITY.md` | Responsible disclosure and secret-handling rules. |
 | `CHANGELOG.md` | Released milestones. |

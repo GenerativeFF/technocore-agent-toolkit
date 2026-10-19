@@ -143,6 +143,13 @@ from technocore_dupe_form import (  # noqa: E402
     dupe_form as dupe_form_fold,
     validate_dupe_form,
 )
+from technocore_dupe_exempt import (  # noqa: E402
+    DUPE_EXEMPT_VERSION,
+    DupeExemptError,
+    DupeExemptResult,
+    dupe_exempt as dupe_exempt_check,
+    validate_dupe_exempt,
+)
 from technocore_verify import (  # noqa: E402
     VerifyResult,
     VerifierError,
@@ -334,6 +341,33 @@ def _result_to_dict_dupe_form(result: DupeFormResult) -> dict[str, Any]:
     return out
 
 
+def _result_to_dict_dupe_exempt(result: DupeExemptResult) -> dict[str, Any]:
+    """Convert a ``DupeExemptResult`` to a JSON-friendly dict.
+
+    On a successful run, the JSON carries ``exempt`` (whether
+    the folded text is strictly shorter than the supplied
+    floor), ``folded_length`` (codepoint count of the folded
+    form), ``min_length`` (the floor the caller supplied,
+    echoed back for logging), and ``folded`` (the canonical
+    comparison form, identical to what ``dupe-form`` would
+    return for the same input). On a failed run, only
+    ``valid: false`` and a static ``reason`` are returned; no
+    field of the original input is echoed.
+
+    The contract ``version`` is included on every successful
+    run so callers can pin against it.
+    """
+    out: dict[str, Any] = {"valid": bool(result.valid), "version": int(DUPE_EXEMPT_VERSION)}
+    if result.valid:
+        out["exempt"] = bool(result.exempt)
+        out["folded"] = result.folded
+        out["folded_length"] = int(result.folded_length) if result.folded_length is not None else None
+        out["min_length"] = int(result.min_length) if result.min_length is not None else None
+    else:
+        out["reason"] = result.reason
+    return out
+
+
 def cmd_scan(args: argparse.Namespace) -> NoReturn:
     text = _read_text_arg(args, attr="file")
     try:
@@ -516,6 +550,53 @@ def cmd_dupe_form(args: argparse.Namespace) -> NoReturn:
     )
 
 
+def cmd_dupe_exempt(args: argparse.Namespace) -> NoReturn:
+    # The text to assess is read from --value or stdin (the
+    # same convention as the ``dupe-form`` command). The
+    # exemption check is a pure function over its inputs: it
+    # does not sign, POST, fetch, decode, or otherwise
+    # transmit the text, and it does not read the
+    # ``dupe_min_length`` floor from any server. The caller
+    # owns the floor; this CLI just enforces the documented
+    # rule that "messages shorter than the length floor are
+    # exempt".
+    value = getattr(args, "value", None)
+    if value is None:
+        value = sys.stdin.read()
+    elif not isinstance(value, str):
+        _fail("--value must be a string", 2)
+    # Strip exactly one trailing newline so piping a string
+    # into the CLI does not add a bogus codepoint that
+    # changes the folded length. A pre-existing \n in the
+    # middle of the input is preserved and folded by the
+    # whitespace step.
+    if value.endswith("\n") and len(value) >= 1:
+        value = value[:-1]
+    # ``--min-length`` is parsed by ``type=int`` so a non-int
+    # input already exits 2 with an argparse error before we
+    # get here; we still defensively guard against ``bool``
+    # and negative values so the CLI matches the Python
+    # API's error surface.
+    min_length = args.min_length
+    if isinstance(min_length, bool) or not isinstance(min_length, int):
+        _fail("--min-length must be a non-negative int", 2)
+    if min_length < 0:
+        _fail("--min-length must be a non-negative int", 2)
+    try:
+        result = validate_dupe_exempt(value, min_length)
+    except TypeError as exc:
+        _fail(f"dupe-exempt failed: {exc}", 3)
+    except ValueError as exc:
+        _fail(f"dupe-exempt failed: {exc}", 3)
+    _emit(
+        {
+            "ok": True,
+            "command": "dupe-exempt",
+            "result": _result_to_dict_dupe_exempt(result),
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -685,6 +766,41 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_dupe_form.set_defaults(func=cmd_dupe_form)
+
+    p_dupe_exempt = sub.add_parser(
+        "dupe-exempt",
+        help=(
+            "Structured verdict of the dupe-filter length-floor "
+            "exemption policy. Returns whether the canonical "
+            "duplicate-filter form of --value is strictly shorter "
+            "than --min-length, the folded form, the folded "
+            "length, and the floor the caller supplied. Pure "
+            "function; does not read the floor from any server."
+        ),
+    )
+    p_dupe_exempt.add_argument(
+        "--value",
+        "-v",
+        default=None,
+        help=(
+            "Text to assess. If omitted, the value is read from "
+            "stdin. Exactly one trailing newline is stripped so "
+            "piping a value works."
+        ),
+    )
+    p_dupe_exempt.add_argument(
+        "--min-length",
+        type=int,
+        required=True,
+        help=(
+            "Length floor below which the dupe-filter is exempt. "
+            "Must be a non-negative integer. The caller owns "
+            "this value; this CLI does not read it from any "
+            "server. ``0`` disables the floor (every message is "
+            "exempt, including the empty string)."
+        ),
+    )
+    p_dupe_exempt.set_defaults(func=cmd_dupe_exempt)
 
     return parser
 
