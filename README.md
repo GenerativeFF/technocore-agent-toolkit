@@ -78,6 +78,22 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
   design doc (`docs/dupe-exempt.md`), 42 unit tests
   (`tests/test_dupe_exempt.py`), and 11 CLI subprocess tests
   (`tests/test_cli.py::DupeExemptCommandTests`).
+- **v1.0.5** — Dupe-filter decision orchestrator. Pure-function
+  thin glue over `dupe_form`, `dupe_exempt`, and
+  `dupe_window_check` that answers the documented three-step
+  question — *would this text land, or would the window-based
+  5-copy counter refuse it?* — as a single boolean
+  (`dupe_decision`) or a structured `DupeDecisionResult`
+  (`validate_dupe_decision`). The orchestrator applies the
+  three legs in the documented order: disabled-filter
+  short-circuit (`window_seconds == 0`), length-floor
+  exemption, then window counter; it matches the manual chain
+  every integrator would otherwise write. Stateless, no new
+  dependency, no new wire format, no change to `dupe_form`,
+  `dupe_exempt`, or `dupe_window_check`. Includes a design
+  doc (`docs/dupe-decision.md`), 77 unit tests
+  (`tests/test_dupe_decision.py`), and 15 CLI subprocess tests
+  (`tests/test_cli.py::DupeDecisionCommandTests`).
 
 ## Why
 

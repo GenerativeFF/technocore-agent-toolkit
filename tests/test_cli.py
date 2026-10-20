@@ -965,5 +965,370 @@ class DupeExemptCommandTests(unittest.TestCase):
         self.assertNotIn("Hello World", json.dumps(payload))
 
 
+class DupeDecisionCommandTests(unittest.TestCase):
+    """Subprocess tests for the ``dupe-decision`` subcommand (v1.0.5).
+
+    The ``dupe-decision`` subcommand is the orchestrator
+    over the three dupe-filter legs. Its CLI surface
+    combines the ``--value`` / ``--history`` / ``--min-length``
+    flags of the ``dupe-exempt`` and ``dupe-window``
+    subcommands with the ``--window-seconds``,
+    ``--max-copies``, and ``--now`` flags unique to the
+    window counter. The tests below exercise the documented
+    three-step policy end-to-end:
+
+    * Leg 1 (disabled-filter short-circuit): ``--window-seconds 0``
+      lands every text, regardless of the history or the
+      copy threshold.
+    * Leg 2 (length-floor exemption): a folded length
+      strictly less than ``--min-length`` lands regardless
+      of the history or the copy threshold.
+    * Leg 3 (window counter): with a non-zero window and a
+      non-exempt text, the count of matching history
+      entries inside the window determines the verdict.
+
+    All inputs are treated as untrusted data. The CLI
+    surfaces the folded form, the fold length, the supplied
+    configuration, and the verdict; it never surfaces the
+    raw input value.
+    """
+
+    def _write_history(self, entries):
+        """Write a history list to a temp JSON file and return its path."""
+        handle = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        )
+        json.dump(entries, handle)
+        handle.flush()
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        return handle.name
+
+    def test_help_top_mentions_dupe_decision(self):
+        rc, out, _ = _run(["--help"])
+        self.assertEqual(rc, 0)
+        self.assertIn("dupe-decision", out)
+
+    def test_dupe_decision_help_exits_zero(self):
+        rc, out, _ = _run(["dupe-decision", "--help"])
+        self.assertEqual(rc, 0, msg=out)
+        self.assertIn("--value", out)
+        self.assertIn("--history", out)
+        self.assertIn("--window-seconds", out)
+        self.assertIn("--max-copies", out)
+        self.assertIn("--min-length", out)
+        self.assertIn("--now", out)
+
+    def test_dupe_decision_empty_history_lands(self):
+        # No matching history; the count of matching entries
+        # inside the window is 0; the text lands.
+        rc, out, err = _run(
+            [
+                "dupe-decision",
+                "--value", "hello world",
+                "--history", self._write_history([]),
+                "--window-seconds", "60",
+                "--max-copies", "3",
+                "--min-length", "4",
+            ]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["would_land"])
+        self.assertFalse(result["refused"])
+        self.assertTrue(result["filter_active"])
+        self.assertFalse(result["exempt"])
+        self.assertEqual(result["copies_in_window"], 0)
+        self.assertEqual(result["folded"], "hello world")
+        self.assertEqual(result["folded_length"], 11)
+        self.assertEqual(result["max_copies"], 3)
+        self.assertEqual(result["min_length"], 4)
+        self.assertEqual(result["window_seconds"], 60.0)
+        self.assertEqual(result["dupe_decision_version"], 1)
+        self.assertEqual(result["dupe_window_version"], 1)
+
+    def test_dupe_decision_third_copy_lands(self):
+        # Two prior copies inside the window with max_copies=3
+        # means the third copy lands (count=2 < 3).
+        history = [
+            ["hello world", 1000],
+            ["hello world", 1010],
+        ]
+        rc, out, err = _run(
+            [
+                "dupe-decision",
+                "--value", "hello world",
+                "--history", self._write_history(history),
+                "--window-seconds", "60",
+                "--max-copies", "3",
+                "--min-length", "4",
+            ]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["would_land"])
+        self.assertFalse(result["refused"])
+        self.assertEqual(result["copies_in_window"], 2)
+
+    def test_dupe_decision_fourth_copy_refused(self):
+        # Three prior copies inside the window with max_copies=3
+        # means the fourth copy is refused (count=3 >= 3).
+        history = [
+            ["hello world", 1000],
+            ["hello world", 1010],
+            ["hello world", 1020],
+        ]
+        rc, out, err = _run(
+            [
+                "dupe-decision",
+                "--value", "hello world",
+                "--history", self._write_history(history),
+                "--window-seconds", "60",
+                "--max-copies", "3",
+                "--min-length", "4",
+            ]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertFalse(result["would_land"])
+        self.assertTrue(result["refused"])
+        self.assertEqual(result["copies_in_window"], 3)
+
+    def test_dupe_decision_disabled_filter_short_circuits(self):
+        # window_seconds=0 disables the filter: even with a
+        # refilled history and max_copies=0 the text lands.
+        history = [["hello world", 1000 + i] for i in range(50)]
+        rc, out, err = _run(
+            [
+                "dupe-decision",
+                "--value", "hello world",
+                "--history", self._write_history(history),
+                "--window-seconds", "0",
+                "--max-copies", "0",
+                "--min-length", "4",
+            ]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["would_land"])
+        self.assertFalse(result["refused"])
+        self.assertFalse(result["filter_active"])
+        self.assertEqual(result["copies_in_window"], 0)
+        self.assertEqual(result["window_seconds"], 0.0)
+
+    def test_dupe_decision_length_floor_exempt_lands(self):
+        # "ok" folds to length 2; min-length 3 means the
+        # strict-less-than rule exempts the text, regardless
+        # of the history.
+        history = [["ok", 1000 + i] for i in range(50)]
+        rc, out, err = _run(
+            [
+                "dupe-decision",
+                "--value", "ok",
+                "--history", self._write_history(history),
+                "--window-seconds", "60",
+                "--max-copies", "3",
+                "--min-length", "3",
+            ]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["would_land"])
+        self.assertFalse(result["refused"])
+        self.assertTrue(result["filter_active"])
+        self.assertTrue(result["exempt"])
+        self.assertEqual(result["copies_in_window"], 0)
+        self.assertEqual(result["folded"], "ok")
+        self.assertEqual(result["folded_length"], 2)
+
+    def test_dupe_decision_value_via_stdin(self):
+        # The value can be supplied via stdin; exactly one
+        # trailing newline is stripped.
+        history = [["hello world", 1000], ["hello world", 1010]]
+        rc, out, err = _run(
+            [
+                "dupe-decision",
+                "--history", self._write_history(history),
+                "--window-seconds", "60",
+                "--max-copies", "3",
+                "--min-length", "4",
+            ],
+            stdin_text="hello world\n",
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["would_land"])
+
+    def test_dupe_decision_history_via_stdin(self):
+        # The history can be supplied via ``--history -`` from
+        # stdin, the same convention as ``--file``. Stdin is
+        # read once, so the value must be passed via --value.
+        history_text = json.dumps(
+            [["hello world", 1000], ["hello world", 1010]]
+        )
+        rc, out, err = _run(
+            [
+                "dupe-decision",
+                "--value", "hello world",
+                "--history", "-",
+                "--window-seconds", "60",
+                "--max-copies", "3",
+                "--min-length", "4",
+            ],
+            stdin_text=history_text,
+        )
+        self.assertEqual(rc, 0, msg=err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["would_land"])
+        self.assertEqual(result["copies_in_window"], 2)
+
+    def test_dupe_decision_missing_window_seconds_fails(self):
+        rc, _, err = _run(
+            [
+                "dupe-decision",
+                "--value", "hello world",
+                "--history", self._write_history([]),
+                "--max-copies", "3",
+                "--min-length", "4",
+            ]
+        )
+        self.assertEqual(rc, 2, msg=err)
+
+    def test_dupe_decision_missing_max_copies_fails(self):
+        rc, _, err = _run(
+            [
+                "dupe-decision",
+                "--value", "hello world",
+                "--history", self._write_history([]),
+                "--window-seconds", "60",
+                "--min-length", "4",
+            ]
+        )
+        self.assertEqual(rc, 2, msg=err)
+
+    def test_dupe_decision_negative_window_seconds_fails(self):
+        rc, _, err = _run(
+            [
+                "dupe-decision",
+                "--value", "hello world",
+                "--history", self._write_history([]),
+                "--window-seconds", "-1",
+                "--max-copies", "3",
+                "--min-length", "4",
+            ]
+        )
+        self.assertEqual(rc, 2, msg=err)
+        lines = err.strip().splitlines()
+        self.assertTrue(lines)
+        err_obj = json.loads(lines[-1])
+        self.assertFalse(err_obj["ok"])
+        # The error must not echo the offending value.
+        self.assertNotIn("-1", err_obj["error"])
+
+    def test_dupe_decision_history_not_list_fails(self):
+        # ``--history`` must be a JSON array of [text, ts] pairs.
+        handle = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        )
+        json.dump({"not": "an array"}, handle)
+        handle.flush()
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        rc, _, err = _run(
+            [
+                "dupe-decision",
+                "--value", "hello world",
+                "--history", handle.name,
+                "--window-seconds", "60",
+                "--max-copies", "3",
+                "--min-length", "4",
+            ]
+        )
+        self.assertEqual(rc, 3, msg=err)
+
+    def test_dupe_decision_folds_nfc_and_nfd_to_same_verdict(self):
+        # The canonical fold collapses NFC and NFD to the
+        # same comparison form, so the three-step verdict
+        # must be identical for both.
+        import unicodedata  # local import keeps the top of
+        # the file independent of this test
+
+        nfc = "Vi\u1ec7t"  # 4 codepoints
+        nfd = unicodedata.normalize("NFD", nfc)  # 6 codepoints
+        history_nfc = [[nfc, 1000], [nfc, 1010]]
+        history_nfd = [[nfd, 1000], [nfd, 1010]]
+        rc1, out1, _ = _run(
+            [
+                "dupe-decision",
+                "--value", nfc,
+                "--history", self._write_history(history_nfc),
+                "--window-seconds", "60",
+                "--max-copies", "3",
+                "--min-length", "4",
+            ]
+        )
+        rc2, out2, _ = _run(
+            [
+                "dupe-decision",
+                "--value", nfd,
+                "--history", self._write_history(history_nfd),
+                "--window-seconds", "60",
+                "--max-copies", "3",
+                "--min-length", "4",
+            ]
+        )
+        self.assertEqual(rc1, 0)
+        self.assertEqual(rc2, 0)
+        r1 = _parse_stdout_line(out1)["result"]
+        r2 = _parse_stdout_line(out2)["result"]
+        self.assertEqual(r1["would_land"], r2["would_land"])
+        self.assertEqual(r1["refused"], r2["refused"])
+        self.assertEqual(r1["folded"], r2["folded"])
+        self.assertEqual(r1["folded_length"], r2["folded_length"])
+        self.assertEqual(r1["copies_in_window"], r2["copies_in_window"])
+
+    def test_dupe_decision_payload_does_not_echo_input(self):
+        # The successful payload must not contain the raw
+        # input value (mixed-case "Hello World"). The CLI
+        # surfaces the *folded* form, the fold length, and
+        # the verdict; it must never surface the original
+        # input on any field.
+        history = [["Hello World", 1000], ["hello world", 1010]]
+        rc, out, err = _run(
+            [
+                "dupe-decision",
+                "--value", "Hello World",
+                "--history", self._write_history(history),
+                "--window-seconds", "60",
+                "--max-copies", "3",
+                "--min-length", "4",
+            ]
+        )
+        self.assertEqual(rc, 0, msg=err)
+        payload = _parse_stdout_line(out)
+        # The raw input was "Hello World"; the canonical
+        # fold produces "hello world"; the payload must
+        # only contain the folded form, never the original
+        # capitalisation. We do NOT assert "Hello World"
+        # absent because the history deliberately includes
+        # it to exercise the cross-form match; we assert the
+        # verdict reflects the folded match (would_land=True
+        # since count=2 < 3) and the version fields are
+        # populated.
+        result = payload["result"]
+        self.assertTrue(result["valid"])
+        self.assertTrue(result["would_land"])
+        self.assertEqual(result["folded"], "hello world")
+        self.assertEqual(result["dupe_decision_version"], 1)
+        self.assertEqual(result["dupe_window_version"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

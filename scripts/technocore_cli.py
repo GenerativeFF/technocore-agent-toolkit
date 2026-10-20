@@ -157,6 +157,14 @@ from technocore_dupe_window import (  # noqa: E402
     dupe_window_check,
     validate_dupe_window,
 )
+from technocore_dupe_decision import (  # noqa: E402
+    DUPE_DECISION_VERSION,
+    DUPE_DECISION_WINDOW_VERSION,
+    DupeDecisionError,
+    DupeDecisionResult,
+    dupe_decision,
+    validate_dupe_decision,
+)
 from technocore_verify import (  # noqa: E402
     VerifyResult,
     VerifierError,
@@ -619,6 +627,63 @@ def _result_to_dict_dupe_window(result: DupeWindowResult) -> dict[str, Any]:
     return out
 
 
+def _result_to_dict_dupe_decision(result: DupeDecisionResult) -> dict[str, Any]:
+    """Convert a ``DupeDecisionResult`` to a JSON-friendly dict.
+
+    On a successful run, the JSON carries ``would_land``
+    (whether the text would land under the documented
+    three-step policy), ``refused`` (the inverse, useful
+    for branching), ``filter_active`` (whether
+    ``window_seconds`` is non-zero), ``folded`` (the
+    canonical duplicate-filter form), ``folded_length``
+    (codepoint count of the folded form), ``exempt``
+    (whether the text is exempt from the length floor),
+    ``copies_in_window`` (the number of matching history
+    entries inside the window; ``0`` when the filter is
+    disabled or the text is exempt), the supplied
+    ``max_copies``, ``min_length``, and ``window_seconds``,
+    and the contract ``version`` of the decision API plus
+    the window companion's version (so callers can detect
+    any silent drift). On a failed run, only
+    ``valid: false``, ``version``, and a static ``reason``
+    are returned; no field of the original input is echoed.
+    """
+    out: dict[str, Any] = {
+        "valid": bool(result.valid),
+        "version": int(DUPE_DECISION_VERSION),
+    }
+    if result.valid:
+        out["would_land"] = bool(result.would_land)
+        out["refused"] = bool(result.refused)
+        out["filter_active"] = bool(result.filter_active)
+        out["exempt"] = bool(result.exempt)
+        out["folded"] = result.folded
+        out["folded_length"] = (
+            int(result.folded_length) if result.folded_length is not None else None
+        )
+        out["copies_in_window"] = (
+            int(result.copies_in_window)
+            if result.copies_in_window is not None
+            else None
+        )
+        out["max_copies"] = (
+            int(result.max_copies) if result.max_copies is not None else None
+        )
+        out["min_length"] = (
+            int(result.min_length) if result.min_length is not None else None
+        )
+        out["window_seconds"] = (
+            float(result.window_seconds)
+            if result.window_seconds is not None
+            else None
+        )
+        out["dupe_decision_version"] = int(result.dupe_decision_version)
+        out["dupe_window_version"] = int(result.dupe_window_version)
+    else:
+        out["reason"] = result.reason
+    return out
+
+
 def cmd_dupe_window(args: argparse.Namespace) -> NoReturn:
     # The text to assess is read from --value or stdin
     # (the same convention as the ``dupe-form`` and
@@ -691,6 +756,78 @@ def cmd_dupe_window(args: argparse.Namespace) -> NoReturn:
             "ok": True,
             "command": "dupe-window",
             "result": _result_to_dict_dupe_window(result),
+        }
+    )
+
+
+def cmd_dupe_decision(args: argparse.Namespace) -> NoReturn:
+    # The text to assess is read from --value or stdin
+    # (the same convention as the ``dupe-form``,
+    # ``dupe-exempt``, and ``dupe-window`` commands). The
+    # history is read from --history or stdin (the same
+    # convention as ``dupe-window``). The decision check is
+    # a pure function over its inputs: it does not sign,
+    # POST, fetch, decode, or otherwise transmit the text
+    # or the history, and it does not read the
+    # ``dupe_filter_seconds`` / ``dupe_max_copies`` /
+    # ``dupe_min_length`` values from any server. The caller
+    # owns every configuration value; this CLI just enforces
+    # the documented three-step policy.
+    value = getattr(args, "value", None)
+    if value is None:
+        value = sys.stdin.read()
+    elif not isinstance(value, str):
+        _fail("--value must be a string", 2)
+    # Strip exactly one trailing newline so piping a string
+    # into the CLI does not add a bogus codepoint that
+    # changes the folded length. A pre-existing \n in the
+    # middle of the input is preserved and folded by the
+    # whitespace step in :func:`dupe_form`.
+    if value.endswith("\n") and len(value) >= 1:
+        value = value[:-1]
+    # ``--window-seconds``, ``--max-copies``, ``--min-length``,
+    # and ``--now`` are parsed by ``type=...`` so a wrong
+    # type already exits 2 with an argparse error before we
+    # get here; we still defensively guard against ``bool``
+    # and negative values so the CLI matches the Python
+    # API's error surface.
+    window_seconds = args.window_seconds
+    if isinstance(window_seconds, bool) or not isinstance(window_seconds, (int, float)):
+        _fail("--window-seconds must be a non-negative number", 2)
+    if window_seconds < 0:
+        _fail("--window-seconds must be a non-negative number", 2)
+    max_copies = args.max_copies
+    if isinstance(max_copies, bool) or not isinstance(max_copies, int):
+        _fail("--max-copies must be a non-negative int", 2)
+    if max_copies < 0:
+        _fail("--max-copies must be a non-negative int", 2)
+    min_length = getattr(args, "min_length", 0)
+    if isinstance(min_length, bool) or not isinstance(min_length, int):
+        _fail("--min-length must be a non-negative int", 2)
+    if min_length < 0:
+        _fail("--min-length must be a non-negative int", 2)
+    now = getattr(args, "now", None)
+    if now is not None and (isinstance(now, bool) or not isinstance(now, (int, float))):
+        _fail("--now must be a number or omitted", 2)
+    history = _read_history_arg(args)
+    try:
+        result = validate_dupe_decision(
+            value,
+            history,
+            window_seconds=window_seconds,
+            max_copies=max_copies,
+            min_length=min_length,
+            now=now,
+        )
+    except (TypeError, ValueError) as exc:
+        _fail(f"dupe-decision failed: {exc}", 3)
+    except DupeDecisionError as exc:
+        _fail(f"dupe-decision failed: {exc}", 3)
+    _emit(
+        {
+            "ok": True,
+            "command": "dupe-decision",
+            "result": _result_to_dict_dupe_decision(result),
         }
     )
 
@@ -1034,6 +1171,96 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_dupe_window.set_defaults(func=cmd_dupe_window)
+
+    p_dupe_decision = sub.add_parser(
+        "dupe-decision",
+        help=(
+            "Structured verdict of the dupe-filter three-step "
+            "policy. Returns whether the canonical "
+            "duplicate-filter form of --value would land on a "
+            "server whose --window-seconds, --max-copies, and "
+            "--min-length are the supplied values, given the "
+            "supplied --history. Pure function; does not read "
+            "any configuration from any server. Combines the "
+            "disabled-filter short-circuit, the length-floor "
+            "exemption, and the window counter into one "
+            "verdict."
+        ),
+    )
+    p_dupe_decision.add_argument(
+        "--value",
+        "-v",
+        default=None,
+        help=(
+            "Text to assess. If omitted, the value is read "
+            "from stdin. Exactly one trailing newline is "
+            "stripped so piping a value works."
+        ),
+    )
+    p_dupe_decision.add_argument(
+        "--history",
+        default=None,
+        help=(
+            "Path to a JSON file containing the recent "
+            "copy history as a JSON array of "
+            "[folded_text, timestamp] pairs. If omitted "
+            "or set to '-', the history is read from "
+            "stdin. The CLI does not fold the history "
+            "entries; supply pre-folded forms (via the "
+            "dupe-form subcommand or the Python "
+            "dupe_form() API)."
+        ),
+    )
+    p_dupe_decision.add_argument(
+        "--window-seconds",
+        type=float,
+        required=True,
+        help=(
+            "Window length in seconds. Must be a "
+            "non-negative number. ``0`` disables the "
+            "filter (every text lands). The caller owns "
+            "this value; this CLI does not read it from "
+            "any server."
+        ),
+    )
+    p_dupe_decision.add_argument(
+        "--max-copies",
+        type=int,
+        required=True,
+        help=(
+            "Copy-count threshold. The first "
+            "``max_copies`` copies of a folded form "
+            "inside the window land, and the "
+            "``(max_copies + 1)``-th is refused. Must "
+            "be a non-negative integer. The caller owns "
+            "this value; this CLI does not read it from "
+            "any server."
+        ),
+    )
+    p_dupe_decision.add_argument(
+        "--min-length",
+        type=int,
+        default=0,
+        help=(
+            "Length floor below which the dupe-filter "
+            "is exempt. Must be a non-negative integer. "
+            "``0`` disables the floor (no exemption). "
+            "Defaults to 0."
+        ),
+    )
+    p_dupe_decision.add_argument(
+        "--now",
+        type=float,
+        default=None,
+        help=(
+            "Optional reference time for the window "
+            "check, in Unix seconds. When omitted, the "
+            "function uses the latest timestamp in "
+            "--history (or 0.0 when --history is also "
+            "absent). Must be a number when supplied."
+        ),
+    )
+    p_dupe_decision.set_defaults(func=cmd_dupe_decision)
 
     return parser
 

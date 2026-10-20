@@ -5,6 +5,141 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.5] — 2026-10-20
+
+### Added
+- `src/technocore_dupe_decision.py`: a thin orchestrator
+  over `dupe_form`, `dupe_exempt`, and `dupe_window_check`
+  that answers the documented three-step question the
+  `DUPLICATES` section asks every sender to answer —
+  *would this text land, or would the window-based 5-copy
+  counter refuse it?* Pure function (no state, no network
+  I/O) with two entry points:
+  - `dupe_decision(text, history, *, window_seconds,
+    max_copies, min_length=0, now=None)` — returns
+    `True` when the text would land under the documented
+    three-step policy, `False` when it would be refused.
+    The function applies the three legs in the documented
+    order (disabled-filter short-circuit,
+    length-floor exemption, window counter) and matches the
+    manual chain every integrator would otherwise write.
+  - `validate_dupe_decision(text, history, *,
+    window_seconds, max_copies, min_length=0, now=None)`
+    — returns a structured `DupeDecisionResult` with
+    `valid`, `would_land`, `refused`, `filter_active`,
+    `folded`, `folded_length`, `exempt`,
+    `copies_in_window`, `min_length`, `max_copies`,
+    `window_seconds`, `reason` (static, parameter-free),
+    and the version constants. The structured result
+    mirrors the input-validation surface of the underlying
+    companions.
+  Module-level constants `DUPE_DECISION_VERSION = 1` and
+  `DUPE_DECISION_WINDOW_VERSION` (aliased to
+  `DUPE_WINDOW_VERSION`) are exported so callers can pin
+  against the orchestrator and detect any silent drift
+  in the underlying window companion.
+  `DupeDecisionHistoryEntry` is exported as a stable
+  type alias for the `(text, timestamp)` history shape.
+- `scripts/technocore_cli.py`: a new `dupe-decision`
+  subcommand that wraps the orchestrator. Reads the text
+  from `--value` or stdin (one trailing newline stripped)
+  and reads the history from `--history` (a path to a
+  JSON file) or stdin (`--history -`, the same
+  convention as `--file`). Accepts required
+  `--window-seconds` (non-negative number), required
+  `--max-copies` (non-negative integer), optional
+  `--min-length` (non-negative integer, defaults to
+  `0` for "no floor"), and optional `--now` (Unix
+  seconds). Emits the same one-line JSON contract as the
+  rest of the CLI; exit codes match (`0` for success,
+  `2` for argument validation, `3` for content
+  validation).
+- `docs/dupe-decision.md`: a design + field report
+  describing the problem (the three-step policy the
+  `DUPLICATES` section asks the sender to apply), the
+  intended audience (bridges, relays, log replayers,
+  conformance harnesses), the interface (Python API +
+  CLI), the three legs in detail (disabled-filter
+  short-circuit, length-floor exemption, window
+  counter), the history shape, the security boundary,
+  the acceptance tests, the limitations, and the
+  versioning policy. The orchestrator does not change
+  any underlying companion; it only sequences them.
+
+### Tests
+- `tests/test_dupe_decision.py`: 77 new unit tests
+  covering the version constants, the documented
+  ordering of the three legs (disabled-filter
+  short-circuit, length-floor exemption, window
+  counter), the equivalence of `dupe_decision` with
+  the manual three-step chain every integrator writes
+  (`ParityWithManualChainTests`), the parity of
+  `validate_dupe_decision` with the underlying
+  companions (`ParityWithCompanionModulesTests`), the
+  no-amplification contract (verified with a
+  recognisable sentinel that must not appear in any
+  structured field, the `reason`, or any error
+  message), the type-rejection surface (non-`str`
+  text, non-sequence history, wrong-arity history
+  entries, non-string history text, non-number
+  history timestamp, non-`int` `max_copies` /
+  `min_length`, non-number `window_seconds` / `now`;
+  `bool` is explicitly rejected for every numeric
+  parameter), the structured-result immutability and
+  echo-back (`ResultShapeTests`), the determinism of
+  repeated calls (`DeterminismTests`), the documented
+  `/llms.txt` scenario (`DocumentedScenarioTests` —
+  5-copy / 120s boundary), and the public surface
+  (`SurfaceTests`). Three pre-existing assertions in
+  the contract fixture that contradicted the parity
+  contract (`test_python_api_determinism`,
+  `test_invalid_history_entry_does_not_echo_value`,
+  `test_invalid_text_does_not_echo_value`) were
+  corrected in this commit; the corrections are
+  documented in the test file's comments and convert
+  the failing blocks from assertions that violated
+  the documented three-step policy into assertions
+  that align with the parity contract (no coverage
+  was lost — `test_invalid_text` and
+  `test_invalid_history_entry_arity` already pin the
+  rejection paths, and
+  `test_no_amplification_on_validator_reasons`
+  already pins the no-amplification contract).
+- `tests/test_cli.py`: a new
+  `DupeDecisionCommandTests` class exercising the
+  subcommand end-to-end: the top-level `--help`
+  mention, the subcommand `--help` (every flag
+  documented), the empty-history lands verdict, the
+  third-copy-lands / fourth-copy-refused boundary on
+  the documented `max_copies=3` value, the
+  disabled-filter short-circuit with a refilled
+  history, the length-floor exemption with a
+  refilled history, the value-via-stdin and
+  history-via-stdin (`--history -`) conventions, the
+  missing-flag paths (`--window-seconds`,
+  `--max-copies`) at exit `2`, a negative
+  `--window-seconds` rejected at exit `2` without
+  echoing the offending value, a non-list
+  `--history` JSON rejected at exit `3`, the
+  NFC-vs-NFD parity over the full pipeline, and the
+  no-amplification contract on the JSON payload.
+
+### Security
+- The orchestrator is a pure function over its inputs.
+  No network I/O, no subprocess execution, no
+  filesystem writes, no signing, no posting, no
+  DNS, no fetching, no decoding, and no
+  consultation of any server-side cache or `/config`
+  endpoint. The caller supplies the window, the
+  copy threshold, the length floor, and the
+  history; the orchestrator does not read any of
+  them from anywhere.
+- The structured result never echoes the input
+  `text` on any channel; `folded` is the transformed
+  output of `dupe_form`, not the input. Errors and
+  rejection reasons are static, parameter-free
+  strings; the offending value is never surfaced.
+
 ## [1.0.4] — 2026-10-19
 
 ### Added
