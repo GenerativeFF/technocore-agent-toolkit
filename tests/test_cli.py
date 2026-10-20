@@ -8,6 +8,7 @@ project's own modules.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -1328,6 +1329,168 @@ class DupeDecisionCommandTests(unittest.TestCase):
         self.assertEqual(result["folded"], "hello world")
         self.assertEqual(result["dupe_decision_version"], 1)
         self.assertEqual(result["dupe_window_version"], 1)
+
+
+class BindingCommandTests(unittest.TestCase):
+    """Subprocess tests for the ``binding`` subcommand."""
+
+    RECORD = {
+        "from": "did:key:z6MkhiRKcJjvdy1s4m6np8GgoLoqgVaRm5PmUVNKKiW9VpEZ",
+        "nonce": 1792493744548,
+        "text": "hello",
+        "ts": "2026-10-20T10:55:48.708802Z",
+        "seq": 199735,
+        "sig": "XTINzh9gw53_kMnbC6F_UOwqGLyEnYAsrOaxchiGbIxTDbHPXZi5oaX2KwwTBb5nh0L-MRAOhsY3_IVRAllWBQ",
+    }
+
+    def _record_json(self, **overrides):
+        record = dict(self.RECORD)
+        record.update(overrides)
+        return json.dumps(record)
+
+    def test_record_from_stdin_with_room_flag(self):
+        code, out, err = _run(
+            ["binding", "--room", "dev"], stdin_text=self._record_json()
+        )
+        self.assertEqual(code, 0, err)
+        payload = _parse_stdout_line(out)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "binding")
+        result = payload["result"]
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["room"], "dev")
+
+    def test_reports_ts_and_seq_as_unsigned(self):
+        code, out, err = _run(
+            ["binding", "--room", "dev"], stdin_text=self._record_json()
+        )
+        self.assertEqual(code, 0, err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertEqual(result["unsigned_server_fields"], ["ts", "seq"])
+
+    def test_reports_signed_fields(self):
+        code, out, _ = _run(
+            ["binding", "--room", "dev"], stdin_text=self._record_json()
+        )
+        self.assertEqual(code, 0)
+        result = _parse_stdout_line(out)["result"]
+        self.assertEqual(result["signed_fields"], ["room", "nonce", "text"])
+
+    def test_reports_identity_field_as_from(self):
+        code, out, _ = _run(
+            ["binding", "--room", "dev"], stdin_text=self._record_json()
+        )
+        self.assertEqual(code, 0)
+        result = _parse_stdout_line(out)["result"]
+        self.assertEqual(result["identity_field"], "from")
+
+    def test_canonical_sha_is_emitted(self):
+        code, out, _ = _run(
+            ["binding", "--room", "dev"], stdin_text=self._record_json()
+        )
+        self.assertEqual(code, 0)
+        result = _parse_stdout_line(out)["result"]
+        expected = hashlib.sha256(
+            canonical_bytes("dev", "1792493744548", "hello")
+        ).hexdigest()
+        self.assertEqual(result["canonical_sha256"], expected)
+
+    def test_warns_about_integer_nonce(self):
+        code, out, _ = _run(
+            ["binding", "--room", "dev"], stdin_text=self._record_json()
+        )
+        self.assertEqual(code, 0)
+        warnings = " ".join(_parse_stdout_line(out)["result"]["warnings"])
+        self.assertIn("JSON number", warnings)
+
+    def test_dash_record_reads_stdin(self):
+        code, out, _ = _run(
+            ["binding", "--record", "-", "--room", "dev"],
+            stdin_text=self._record_json(),
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(_parse_stdout_line(out)["ok"])
+
+    def test_record_from_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "record.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(self._record_json())
+            code, out, err = _run(["binding", "--record", path, "--room", "dev"])
+        self.assertEqual(code, 0, err)
+        self.assertTrue(_parse_stdout_line(out)["ok"])
+
+    def test_missing_record_file_exits_two(self):
+        code, _, err = _run(
+            ["binding", "--record", "/nonexistent/record.json", "--room", "dev"]
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("error", _parse_stderr_line(err))
+
+    def test_envelope_room_is_used(self):
+        envelope = json.dumps(
+            {"room": "dev", "count": 1, "messages": [self.RECORD]}
+        )
+        code, out, err = _run(["binding"], stdin_text=envelope)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(_parse_stdout_line(out)["result"]["room"], "dev")
+
+    def test_explicit_room_overrides_envelope(self):
+        envelope = json.dumps(
+            {"room": "dev", "count": 1, "messages": [self.RECORD]}
+        )
+        code, out, _ = _run(["binding", "--room", "other"], stdin_text=envelope)
+        self.assertEqual(code, 0)
+        self.assertEqual(_parse_stdout_line(out)["result"]["room"], "other")
+
+    def test_bare_array_is_accepted(self):
+        code, out, err = _run(
+            ["binding", "--room", "dev"],
+            stdin_text=json.dumps([self.RECORD]),
+        )
+        self.assertEqual(code, 0, err)
+        self.assertTrue(_parse_stdout_line(out)["ok"])
+
+    def test_empty_envelope_exits_two(self):
+        code, _, err = _run(
+            ["binding", "--room", "dev"],
+            stdin_text=json.dumps({"room": "dev", "messages": []}),
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("error", _parse_stderr_line(err))
+
+    def test_empty_array_exits_two(self):
+        code, _, err = _run(
+            ["binding", "--room", "dev"], stdin_text="[]"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("error", _parse_stderr_line(err))
+
+    def test_invalid_json_exits_two(self):
+        code, _, err = _run(["binding", "--room", "dev"], stdin_text="not json")
+        self.assertEqual(code, 2)
+        self.assertIn("error", _parse_stderr_line(err))
+
+    def test_missing_room_exits_zero_with_static_reason(self):
+        code, out, err = _run(
+            ["binding"], stdin_text=self._record_json()
+        )
+        self.assertEqual(code, 0, err)
+        result = _parse_stdout_line(out)["result"]
+        self.assertFalse(result["ok"])
+        self.assertIn("room", result["reason"])
+
+    def test_output_is_exactly_one_json_line(self):
+        code, out, _ = _run(
+            ["binding", "--room", "dev"], stdin_text=self._record_json()
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(len(out.splitlines()), 1)
+
+    def test_help_lists_binding(self):
+        code, out, _ = _run(["--help"])
+        self.assertEqual(code, 0)
+        self.assertIn("binding", out)
 
 
 if __name__ == "__main__":

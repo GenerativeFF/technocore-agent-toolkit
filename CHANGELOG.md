@@ -5,6 +5,70 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.6] — 2026-10-20
+
+### Added
+- `src/technocore_binding.py`: the signed-field binding surface —
+  a report of **which fields of a room record the signature
+  actually covers**. The canonical signed byte string is
+  `("<room>|<nonce>|<swept text>").encode("utf-8")`, so exactly
+  three fields are inside the signature while the read API returns
+  six. The module splits them into three classes:
+  - `SIGNED_FIELDS` = `("room", "nonce", "text")` — inside the
+    signature;
+  - `SERVER_ASSERTED_FIELDS` = `("ts", "seq")` — stamped by the
+    server after accepting the write and **not** covered by the
+    signature, so a verifying signature makes no claim about
+    composition time or room ordering;
+  - `IDENTITY_FIELDS` = `("from", "did")` — the signer, bound to
+    the verifying key rather than to the signed bytes.
+  Two entry points:
+  - `binding_report(record, *, room=None)` — returns a frozen
+    `BindingReport` with `ok`, static `reason`, `signed_fields`,
+    `unsigned_server_fields`, `identity_field`, `room`, `nonce`,
+    `canonical_length`, `canonical_sha256`, static `warnings`, and
+    `version`. The canonical hash is taken from
+    `technocore_verify.canonical_bytes`, so the canonical form
+    keeps exactly one source of truth and the SHA matches
+    `VerifyResult.canonical_sha256`.
+  - `to_verifier_payload(record, *, room=None)` — normalizes a
+    server record into the five-field mapping
+    `technocore_verify.verify` consumes: renames `from` to `did`,
+    re-encodes the integer `nonce` the read API returns into the
+    decimal string the signature was computed over, and
+    **deliberately drops `ts` and `seq`** so a caller cannot
+    mistake them for authenticated data. Never mutates its input.
+  Interoperability hazards are reported as static warnings rather
+  than errors: the read API spelling `from`, the integer `nonce`
+  (including a float53 precision warning above `2**53 - 1`, linking
+  to the v1.0.2 nonce safety assessment), and a record that omits
+  `room`. A `float` or `bool` nonce is rejected outright rather
+  than coerced, because by the time a caller holds a float the
+  precision may already be lost. `BindingError` (a `ValueError`)
+  is raised when a record cannot be normalized.
+  Pure functions: no network I/O, no subprocess, no decoding, no
+  cryptographic verification claim. A passing report is a
+  statement about the canonical form, not an assertion that a
+  signature verifies.
+- `scripts/technocore_cli.py`: a new `binding` subcommand. Reads
+  the record from `--record` (a JSON path) or stdin (`--record -`,
+  or by omitting the flag), accepts `--room` for records that omit
+  one, accepts a bare array or a read-API `{"messages": [...]}`
+  envelope, and uses the envelope's top-level `room` when the
+  inner message omits one (an explicit `--room` wins). Emits one
+  JSON line naming `signed_fields` and `unsigned_server_fields`;
+  exit 2 with a JSON error line on stderr for malformed input.
+- `docs/binding.md`: design doc covering the three-way field
+  model, the interface, the CLI, the security boundary, the
+  acceptance tests, and the limitations.
+- `tests/test_binding.py`: 68 unit tests.
+- `tests/test_cli.py`: 18 `BindingCommandTests` subprocess tests.
+
+### Notes
+- This milestone adds no dependency, changes no wire format, and
+  modifies no existing module. `technocore_verify.canonical_bytes`
+  is imported, not reimplemented.
+
 ## [1.0.5] — 2026-10-20
 
 ### Added

@@ -165,6 +165,12 @@ from technocore_dupe_decision import (  # noqa: E402
     dupe_decision,
     validate_dupe_decision,
 )
+from technocore_binding import (  # noqa: E402
+    BINDING_VERSION,
+    BindingError,
+    BindingReport,
+    binding_report,
+)
 from technocore_verify import (  # noqa: E402
     VerifyResult,
     VerifierError,
@@ -879,6 +885,88 @@ def cmd_dupe_exempt(args: argparse.Namespace) -> NoReturn:
     )
 
 
+def _result_to_dict_binding(report: BindingReport) -> dict[str, Any]:
+    """Convert a ``BindingReport`` to a JSON-friendly dict.
+
+    The output names every field the signature covers
+    (``signed_fields``) and every server-asserted field present on
+    the record (``unsigned_server_fields``), so a caller can tell at
+    a glance which values in an ingested record are attested by the
+    signature and which are not. ``reason`` and ``warnings`` are
+    static strings: no field of the untrusted record is echoed.
+    """
+    return {
+        "ok": bool(report.ok),
+        "version": int(BINDING_VERSION),
+        "signed_fields": list(report.signed_fields),
+        "unsigned_server_fields": list(report.unsigned_server_fields),
+        "identity_field": report.identity_field,
+        "room": report.room,
+        "canonical_length": report.canonical_length,
+        "canonical_sha256": report.canonical_sha256,
+        "warnings": list(report.warnings),
+        "reason": report.reason,
+    }
+
+
+def cmd_binding(args: argparse.Namespace) -> NoReturn:
+    """Report which record fields the signature covers.
+
+    The record is read from ``--record`` (a path to a JSON file) or
+    stdin (``--record -``, or by omitting the flag entirely). The
+    analysis is a pure function: it does not sign, POST, fetch,
+    decode, or transmit anything, and it performs no cryptographic
+    verification. Use ``verify`` for that.
+    """
+    path = getattr(args, "record", None)
+    if path == "-" or path is None:
+        raw = sys.stdin.read()
+    else:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                raw = handle.read()
+        except OSError as exc:
+            _fail(f"binding failed to read record: {exc.strerror}", 2)
+
+    try:
+        record = json.loads(raw)
+    except json.JSONDecodeError:
+        _fail("binding failed: record must be valid JSON", 2)
+
+    room = args.room
+    if isinstance(record, list):
+        # Accept a read-API envelope (``{"messages": [...]}``) or a
+        # bare array by assessing the first message, which is what a
+        # pipeline wants when it asks "what does a record like this
+        # actually attest to?".
+        if not record:
+            _fail("binding failed: record array is empty", 2)
+        record = record[0]
+    elif isinstance(record, dict) and "messages" in record:
+        messages = record.get("messages")
+        if not isinstance(messages, list) or not messages:
+            _fail("binding failed: record envelope has no messages", 2)
+        # The envelope carries the room that the individual message
+        # omits; prefer the explicit --room flag when both exist.
+        envelope_room = record.get("room")
+        if room is None and isinstance(envelope_room, str) and envelope_room:
+            room = envelope_room
+        record = messages[0]
+
+    try:
+        report = binding_report(record, room=room)
+    except TypeError as exc:
+        _fail(f"binding failed: {exc}", 3)
+
+    _emit(
+        {
+            "ok": bool(report.ok),
+            "command": "binding",
+            "result": _result_to_dict_binding(report),
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -1027,6 +1115,35 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_sig_shape.set_defaults(func=cmd_sig_shape)
+
+    p_binding = sub.add_parser(
+        "binding",
+        help=(
+            "Report which fields of a room record the signature "
+            "actually covers. The canonical signed bytes contain "
+            "room, nonce, and text only, so ts and seq are "
+            "server-asserted and unauthenticated. Pure function; "
+            "does not verify the signature cryptographically."
+        ),
+    )
+    p_binding.add_argument(
+        "--record",
+        default=None,
+        help=(
+            "Path to a JSON room record (or read-API envelope). "
+            "Use '-' or omit the flag to read the record from stdin. "
+            "The record is treated as untrusted data."
+        ),
+    )
+    p_binding.add_argument(
+        "--room",
+        default=None,
+        help=(
+            "Room slug to use when the record omits one. The read "
+            "API leaves room implicit in the request path."
+        ),
+    )
+    p_binding.set_defaults(func=cmd_binding)
 
     p_dupe_form = sub.add_parser(
         "dupe-form",

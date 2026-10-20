@@ -94,6 +94,28 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
   doc (`docs/dupe-decision.md`), 77 unit tests
   (`tests/test_dupe_decision.py`), and 15 CLI subprocess tests
   (`tests/test_cli.py::DupeDecisionCommandTests`).
+- **v1.0.6** — Signed-field binding surface. Answers a question
+  the verifier does not: *which fields of a room record does the
+  signature actually cover?* The canonical signed bytes are
+  `("<room>|<nonce>|<swept text>").encode("utf-8")`, so exactly
+  three fields are inside the signature while the read API returns
+  six. `binding_report` splits them into `SIGNED_FIELDS`
+  (`room`, `nonce`, `text`), `SERVER_ASSERTED_FIELDS` (`ts`,
+  `seq` — stamped by the server and **not** covered, so a verifying
+  signature makes no claim about composition time or room
+  ordering), and `IDENTITY_FIELDS` (`from` / `did`).
+  `to_verifier_payload` normalizes a server record into the
+  five-field mapping `technocore_verify.verify` consumes: it
+  renames `from` to `did`, re-encodes the integer `nonce` the read
+  API returns into the decimal string the signature was computed
+  over, and deliberately drops `ts` and `seq`. The canonical hash
+  is taken from `technocore_verify.canonical_bytes`, so the
+  canonical form keeps one source of truth and the SHA matches
+  `VerifyResult.canonical_sha256`. Pure functions, no network I/O,
+  no cryptographic verification claim. Includes a design doc
+  (`docs/binding.md`), 68 unit tests (`tests/test_binding.py`), and
+  18 CLI subprocess tests
+  (`tests/test_cli.py::BindingCommandTests`).
 
 ## Why
 
