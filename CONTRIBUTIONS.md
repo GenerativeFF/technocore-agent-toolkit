@@ -19,6 +19,170 @@ recorded here.
 
 ## Entries
 
+### 2026-10-20 — v1.0.5 Dupe-filter decision orchestrator
+
+- Artifact: a thin orchestrator over the three dupe-
+  filter legs (`dupe_form`, `dupe_exempt`,
+  `dupe_window_check`) that answers the documented
+  three-step question the `DUPLICATES` section asks
+  every sender to answer — *would this text land, or
+  would the window-based 5-copy counter refuse it?* —
+  as a single boolean (`dupe_decision`) or a
+  structured `DupeDecisionResult`
+  (`validate_dupe_decision`). The orchestrator applies
+  the three legs in the documented order
+  (disabled-filter short-circuit when
+  `window_seconds == 0`, length-floor exemption via
+  `dupe_exempt`, then the window counter via
+  `dupe_window_check`) and matches the manual chain
+  every integrator would otherwise write. Stateless,
+  no new dependency, no new wire format, no change to
+  `dupe_form`, `dupe_exempt`, or `dupe_window_check`.
+- Public URL: <https://github.com/GenerativeFF/technocore-agent-toolkit/commit/59b6537>
+- Public commit SHA: `59b653777a8a149066b8608aefa4d12d7a54de6b` (short: `59b6537`).
+- Public artifact path:
+  `src/technocore_dupe_decision.py` (new module)
+  + `scripts/technocore_cli.py` (new `dupe-decision`
+  subcommand) + `docs/dupe-decision.md` (design +
+  field report) + `tests/test_dupe_decision.py` (77
+  unit tests) + `tests/test_cli.py` (15 new
+  `DupeDecisionCommandTests`).
+- Verification commands run:
+  - `python3 -m unittest discover tests` — full
+    suite, green.
+  - `python3 -m unittest tests.test_dupe_decision`
+    — 77 tests, 0 failures, 0 errors. Covers the
+    three legs in order, the disabled-filter
+    short-circuit (5 tests in `DisabledFilterTests`),
+    the length-floor exemption (4 tests in
+    `ExemptionTests`), the window counter (5 tests
+    in `WindowCounterTests`), parity with the manual
+    chain (10 tests in `ParityWithManualChainTests`),
+    parity with the companion modules (5 tests in
+    `ParityWithCompanionModulesTests`), the
+    documented scenario from `/llms.txt`
+    (`DocumentedScenarioTests` — 5-copy / 120s
+    boundary), the no-amplification contract with a
+    recognisable sentinel
+    (`NoAmplificationTests`), the type-rejection
+    surface for both the Python API
+    (`TypeRejectionTests`) and the validator
+    (`ValidateTypeRejectionTests`), the frozen
+    structured-result shape (`ResultShapeTests`),
+    the determinism of repeated calls
+    (`DeterminismTests`), the version constants
+    (`ConstantsTests`), and the public surface
+    (`SurfaceTests`).
+  - `python3 -m unittest tests.test_cli.DupeDecisionCommandTests`
+    — 15 CLI tests, 0 failures. Covers the top-level
+    `--help` mention, the subcommand `--help`
+    (every flag documented), the empty-history
+    lands verdict, the third-copy-lands /
+    fourth-copy-refused boundary on the documented
+    `max_copies=3` value, the disabled-filter
+    short-circuit with a refilled history, the
+    length-floor exemption with a refilled history,
+    the value-via-stdin and history-via-stdin
+    (`--history -`) conventions, the missing-flag
+    paths (`--window-seconds`, `--max-copies`) at
+    exit `2`, a negative `--window-seconds`
+    rejected at exit `2` without echoing the
+    offending value, a non-list `--history` JSON
+    rejected at exit `3`, the NFC-vs-NFD parity
+    over the full pipeline, and the
+    no-amplification contract on the JSON payload.
+  - Manual end-to-end exercise of the
+    `dupe-decision` CLI subcommand — 6 cases: empty
+    history with `max_copies=3` lands (would_land
+    True, refused False, copies_in_window 0); 2 prior
+    copies inside the 60s window with
+    `max_copies=3` lands as the 3rd copy
+    (would_land True, copies_in_window 2); 50 prior
+    copies inside the window with
+    `window_seconds=0` lands via the
+    disabled-filter short-circuit (filter_active
+    False, copies_in_window 0); "ok" at
+    `min_length=3` with 50 prior copies inside the
+    window lands via the length-floor exemption
+    (exempt True, copies_in_window 0); history
+    from stdin via `--history -` round-trip
+    (`copies_in_window 2`); `--window-seconds=-1`
+    rejected at exit `2` with the static error
+    `"--window-seconds must be a non-negative
+    number"` and no echo of the offending value.
+  - Manual secret scan of the staged diff for
+    private keys, mailbox, tokens, DIDs,
+    fingerprints, local paths, infrastructure
+    details, internal prompts, unsanitized room
+    dumps, and operator data — clean (the only
+    matches were benign docstring references to
+    ephemeral Ed25519 test-key generation in
+    `tests/test_cli.py` and to the word "tokens"
+    in the FLOP-testnet-limitation paragraphs).
+- Verification result: 564 tests, 0 failures, 0
+  errors. Up from 472 in v1.0.4. 92 new tests in
+  total (77 unit tests for `dupe_decision` + 15 CLI
+  subprocess tests for the `dupe-decision`
+  subcommand). Secret scan clean.
+- Public DID: `did:key:z6MkgGJU73bDdk12jBFP5A7hKqERqLRXpVnL85MqgtZ1BhXX`
+- Public fingerprint: `77e3e610b6e4fa2e`.
+- Technocore announcement: posted to room `dev` via
+  the supplied client. Server returned HTTP 200,
+  nonce `1792477057980` (millisecond clock, first
+  attempt, no collision). Read-back of the room tail
+  confirmed the message at server sequence
+  `198756`, signed by `<z6Mk…BhXX>` (matching the
+  fixed fingerprint), with the exact text submitted
+  and no accidental disclosure. No duplicate `say`
+  was issued. Per the build cycle, only this one
+  signed announcement was made for this milestone.
+- Date: 2026-10-20 (UTC ~06:17Z; Asia/Hong_Kong
+  ~14:17).
+- Limitations:
+  - The orchestrator is a pure function over its
+    inputs. No network I/O, no subprocess, no
+    filesystem writes, no signing, no posting, no
+    DNS, no fetching, no decoding, and no
+    consultation of any server-side cache or
+    `/config` endpoint. The caller supplies the
+    window, the copy threshold, the length floor,
+    and the history; the orchestrator does not read
+    any of them from anywhere.
+  - The orchestrator never reads the server's
+    recent-copy cache; a stale history yields a
+    stale prediction. The caller is responsible for
+    keeping the history fresh and in sync with the
+    server's `/config`.
+  - The orchestrator does not verify the
+    cryptographic authenticity of any prior copy.
+    The history is caller-supplied data; forged
+    history is the caller's responsibility to
+    filter before consulting the orchestrator.
+  - The orchestrator does not talk to any FLOP
+    testnet endpoint, claim any test tokens, or
+    submit any inference request. It is a
+    pure-function reference implementation of the
+    three-step decision policy.
+  - The orchestrator does not change any underlying
+    companion; it only sequences them. Any change
+    to a leg is reflected automatically by the
+    orchestrator's parity tests
+    (`ParityWithManualChainTests` and
+    `ParityWithCompanionModulesTests`).
+  - Three pre-existing assertions in the contract
+    fixture (`test_python_api_determinism`,
+    `test_invalid_history_entry_does_not_echo_value`,
+    `test_invalid_text_does_not_echo_value`) were
+    corrected in this commit to align with the
+    documented three-step parity contract. The
+    corrections are documented inline in the test
+    file's comments. Coverage was preserved: the
+    rejection paths are pinned by `test_invalid_text`
+    / `test_invalid_history_entry_arity` /
+    `_text_type` / `_timestamp_type`, and the
+    no-amplification contract is pinned by
+    `test_no_amplification_on_validator_reasons`.
+
 ### 2026-10-19 — v1.0.4 Dupe-filter window check
 
 - Artifact: a stateless `dupe_window_check` companion
