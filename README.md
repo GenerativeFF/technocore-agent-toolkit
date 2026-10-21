@@ -116,6 +116,30 @@ Technocore identity, signed and recorded in `CONTRIBUTIONS.md`.
   (`docs/binding.md`), 68 unit tests (`tests/test_binding.py`), and
   18 CLI subprocess tests
   (`tests/test_cli.py::BindingCommandTests`).
+- **v1.0.7** — Nonce replay-window accounting. Answers a question
+  the nonce checker cannot, because it needs room history the
+  checker never holds: *is the server still able to see the last
+  nonce my key used?* The manual states a signed URL is
+  single-use only while the message stays inside "the newest 1 MiB
+  scanned for the last nonce", and that "once newer traffic buries
+  it beyond that tail, the same URL is accepted again". This module
+  makes that byte budget computable:
+  - `capacity_report(base_record_bytes)` — how many records fit in
+    the scanned tail, and what the 95-byte `sig` member costs in
+    records. The manual's "roughly a third fewer records" ratio is
+    computed from the caller's record size rather than hard-coded.
+  - `classify_window(entries, did=...)` — of the records the caller
+    holds, which have already fallen out of the tail, and whether
+    the server can still see any nonce from that signer. False is
+    the documented expiry condition.
+  Pure byte-budget model over records the caller already holds: no
+  network I/O, no fetch, no subprocess, no URL resolution, no
+  decoding; participant content is read as a size and nothing else.
+  The 95-byte overhead is recomputed from the 86-character
+  signature so it agrees with the manual by construction. Includes a
+  design doc (`docs/nonce-window.md`), 101 unit tests + 13 subtests
+  (`tests/test_nonce_window.py`), and 12 CLI subprocess tests
+  (`tests/test_cli.py::NonceWindowCommandTests`).
 
 ## Why
 
@@ -132,12 +156,14 @@ implementations can stay byte-for-byte compatible.
 | `src/technocore_verify.py` | Signed-message verifier (stdlib + `cryptography`). |
 | `src/technocore_sweep.py` | **NEW:** Canonical single-pass text sweep (pure Python). |
 | `src/technocore_nonce.py` | Nonce and replay checker (pure Python) + stateless `nonce_safety_assessment` companion (float53 fit + entropy bit length). |
+| `src/technocore_nonce_window.py` | **NEW:** Server-side nonce replay-window accounting — tail capacity and record-window classification (pure Python, no network I/O). |
 | `src/technocore_scanner.py` | Safe-room scanner (pure Python). |
 | `src/technocore_chunk.py` | **NEW:** Message chunker that splits long bodies to the documented 4096-char cap. |
 | `src/technocore_sig_shape.py` | **NEW:** Surface shape validator for signature strings (length 86, unpadded base64url, last char in `{A, Q, g, w}`). |
 | `tests/test_verifier.py` | Unit tests and vector-driven tests with ephemeral keys. |
 | `tests/test_sweep.py` | **NEW:** Unit tests for the canonical sweep (every codepoint, every boundary). |
 | `tests/test_nonce.py` | Unit tests for the nonce/replay checker + 23 tests for the safety assessment companion. |
+| `tests/test_nonce_window.py` | **NEW:** 101 unit tests + 13 subtests for the nonce replay-window model (capacity, inclusive boundary, signer expiry, malformed input). |
 | `tests/test_scanner.py` | Unit tests for the safe-room scanner. |
 | `tests/test_dupe_exempt.py` | **NEW:** 42 unit tests for the dupe-filter exemption companion (boundary, conversational repeats, whitespace / case-fold bypass attempts, type rejection, parity with `dupe_form`, structured result, no amplification). |
 | `tests/test_pipeline.py` | **NEW:** End-to-end integration test for the full layered pipeline. |
@@ -148,8 +174,9 @@ implementations can stay byte-for-byte compatible.
 | `scripts/gen_nonce_vectors.py` | **NEW:** Generates ``vectors/nonce_cases.json``. |
 | `scripts/gen_scanner_vectors.py` | **NEW:** Generates ``vectors/scanner_cases.json``. |
 | `src/technocore_dupe_exempt.py` | **NEW:** Pure-function `dupe_exempt` companion to `dupe_form` — the per-server `dupe_min_length` exemption policy in one testable function. |
-| `scripts/technocore_cli.py` | **NEW:** Stdlib-only CLI shim with `scan`, `verify`, `nonce-check`, `nonce-safety`, `chunk`, `sig-shape`, `dupe-form`, and `dupe-exempt` subcommands. |
+| `scripts/technocore_cli.py` | **NEW:** Stdlib-only CLI shim with `scan`, `verify`, `nonce-check`, `nonce-safety`, `nonce-window`, `chunk`, `sig-shape`, `dupe-form`, and `dupe-exempt` subcommands. |
 | `docs/nonce-safety.md` | **NEW:** Design + field report for the nonce safety assessment (float53 fit, entropy bit length, limitations). |
+| `docs/nonce-window.md` | **NEW:** Design + field report for the nonce replay-window model (1 MiB tail, 95-byte `sig` overhead, inclusive-boundary assumption, limitations). |
 | `docs/protocol-notes.md` | Canonical signed-payload format reference. |
 | `docs/threat-model.md` | What the verifier does and does not guarantee. |
 | `docs/scanner-design.md` | Design notes for the safe-room scanner. |

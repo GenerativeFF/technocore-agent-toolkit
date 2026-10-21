@@ -128,6 +128,15 @@ from technocore_nonce import (  # noqa: E402
     NonceSafetyResult,
     nonce_safety_assessment,
 )
+from technocore_nonce_window import (  # noqa: E402
+    DEFAULT_NONCE_WINDOW_BYTES as NONCE_WINDOW_DEFAULT_BYTES,
+    NONCE_WINDOW_VERSION,
+    SIG_RECORD_OVERHEAD_BYTES,
+    NonceWindowError,
+    WindowReport,
+    capacity_report,
+    classify_window,
+)
 from technocore_scanner import ScanError, ScanResult, scan as scanner_scan  # noqa: E402
 from technocore_sig_shape import (  # noqa: E402
     SIG_SHAPE_VERSION,
@@ -967,6 +976,179 @@ def cmd_binding(args: argparse.Namespace) -> NoReturn:
     )
 
 
+def _estimate_record_size(obj: Any) -> int:
+    """Estimate one stored record's byte cost.
+
+    The reference manual says the export is raw JSONL "byte-for-byte
+    as written" but does not publish the server's exact JSON encoding
+    (separators, key order, escaping), so this is an ESTIMATE and the
+    CLI reports it as one via ``sizes_estimated``. A caller that has
+    the raw line should measure it and pass ``size_bytes`` instead.
+    """
+    compact = json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+    # +1 for the terminating newline that makes the record one JSONL
+    # line of the stored ring.
+    return len(compact.encode("utf-8")) + 1
+
+
+def _load_window_entries(raw: str) -> tuple[list[Any], bool]:
+    """Parse a record list from JSON or from raw JSONL.
+
+    Returns the entries and whether sizes had to be estimated, i.e.
+    whether any entry arrived without an explicit ``size_bytes``.
+    """
+    records: Any
+    try:
+        records = json.loads(raw)
+    except json.JSONDecodeError:
+        # Try raw JSONL, as served by GET /r/<room>/export: one record
+        # per line. A blank trailing line is ignored. A line that is
+        # not valid JSON is a hard error rather than a silent skip.
+        #
+        # A single line of non-JSON, or empty input, is reported with
+        # the same wording the well-formed non-list case uses: the
+        # caller has not supplied a record list, and reporting a
+        # "line 1 is not valid JSON" detail there just substitutes one
+        # diagnostic for another.
+        lines = [line for line in raw.splitlines() if line.strip()]
+        if len(lines) < 2:
+            raise NonceWindowError("input did not contain a record list")
+        records = []
+        for number, line in enumerate(lines, start=1):
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                raise NonceWindowError(
+                    f"line {number} is not valid JSON"
+                ) from None
+
+    if isinstance(records, dict) and "messages" in records:
+        records = records.get("messages")
+    if not isinstance(records, list) or not records:
+        raise NonceWindowError("input did not contain a record list")
+
+    entries: list[Any] = []
+    estimated = False
+    for record in records:
+        if not isinstance(record, dict):
+            raise NonceWindowError("every record must be a JSON object")
+        if "size_bytes" in record:
+            entries.append(record)
+        else:
+            sized = dict(record)
+            sized["size_bytes"] = _estimate_record_size(record)
+            entries.append(sized)
+            estimated = True
+    return entries, estimated
+
+
+def _result_to_dict_nonce_window(report: WindowReport) -> dict[str, Any]:
+    """Convert a ``WindowReport`` to a JSON-friendly dict."""
+    return {
+        "version": int(NONCE_WINDOW_VERSION),
+        "window_bytes": int(report.window_bytes),
+        "total_records": int(report.total_records),
+        "total_bytes": int(report.total_bytes),
+        "in_window_records": int(report.in_window_records),
+        "in_window_bytes": int(report.in_window_bytes),
+        "expired_records": int(report.expired_records),
+        "expired_bytes": int(report.expired_bytes),
+        "oldest_protected_seq": report.oldest_protected_seq,
+        "newest_expired_seq": report.newest_expired_seq,
+        "did": report.did,
+        "did_in_window_records": int(report.did_in_window_records),
+        "did_expired_records": int(report.did_expired_records),
+        "did_last_nonce_in_window": report.did_last_nonce_in_window,
+        "did_last_seen_protected": bool(report.did_last_seen_protected),
+        "records_without_identity": int(report.records_without_identity),
+        "sig_overhead_bytes": int(SIG_RECORD_OVERHEAD_BYTES),
+        "reason": report.reason,
+    }
+
+
+def cmd_nonce_window(args: argparse.Namespace) -> NoReturn:
+    """Report the server-side nonce replay window accounting.
+
+    ``--mode capacity`` answers "what does signing cost in records?"
+    given a base unsigned record size. ``--mode classify`` answers
+    "is the server still able to see the last nonce this key used?"
+    given a chronological record list.
+
+    The analysis is a local byte-budget model over records the caller
+    already holds. It performs no network I/O, no fetch, no decoding,
+    and no cryptographic verification; it does not query the server
+    and does not establish what the server actually scanned.
+    """
+    window_bytes = getattr(args, "window_bytes", None)
+    if window_bytes is None:
+        window_bytes = NONCE_WINDOW_DEFAULT_BYTES
+    if isinstance(window_bytes, bool) or not isinstance(window_bytes, int):
+        _fail("--window-bytes must be a positive int", 2)
+    if window_bytes <= 0:
+        _fail("--window-bytes must be a positive int", 2)
+
+    if args.mode == "capacity":
+        base = args.base_record_bytes
+        if base is None:
+            _fail("argument --base-record-bytes is required", 2)
+        if isinstance(base, bool) or not isinstance(base, int) or base <= 0:
+            _fail("--base-record-bytes must be a positive int", 2)
+        try:
+            report = capacity_report(base, window_bytes=window_bytes)
+        except NonceWindowError as exc:
+            _fail(f"nonce-window failed: {exc}", 3)
+        _emit(
+            {
+                "ok": True,
+                "command": "nonce-window",
+                "result": {
+                    "version": int(NONCE_WINDOW_VERSION),
+                    "mode": "capacity",
+                    "window_bytes": int(report.window_bytes),
+                    "base_record_bytes": int(report.base_record_bytes),
+                    "signed_record_bytes": int(report.signed_record_bytes),
+                    "sig_overhead_bytes": int(SIG_RECORD_OVERHEAD_BYTES),
+                    "unsigned_records": int(report.unsigned_records),
+                    "signed_records": int(report.signed_records),
+                    "records_lost": int(report.records_lost),
+                    "fraction_lost": report.fraction_lost,
+                },
+            }
+        )
+        raise SystemExit(0)
+
+    path = getattr(args, "file", None)
+    if path == "-" or path is None:
+        raw = sys.stdin.read()
+    else:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                raw = handle.read()
+        except OSError as exc:
+            _fail(f"nonce-window failed to read records: {exc.strerror}", 2)
+
+    try:
+        entries, estimated = _load_window_entries(raw)
+    except NonceWindowError as exc:
+        _fail(f"nonce-window failed: {exc}", 2)
+
+    try:
+        report = classify_window(
+            entries, window_bytes=window_bytes, did=args.did
+        )
+    except NonceWindowError as exc:
+        _fail(f"nonce-window failed: {exc}", 3)
+
+    result = _result_to_dict_nonce_window(report)
+    result["mode"] = "classify"
+    # Estimated sizes come from a compact JSON re-serialization, which
+    # need not match the server's own encoding, so the caller is told
+    # rather than left to assume exactness.
+    result["sizes_estimated"] = bool(estimated)
+    _emit({"ok": True, "command": "nonce-window", "result": result})
+    raise SystemExit(0)
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -1065,6 +1247,66 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_nonce_safety.set_defaults(func=cmd_nonce_safety)
+
+    p_nonce_window = sub.add_parser(
+        "nonce-window",
+        help=(
+            "Model the server-side nonce replay window: the newest "
+            "1 MiB the server scans for the last nonce a key used. "
+            "'capacity' reports what signing costs in records; "
+            "'classify' reports which supplied records have already "
+            "been buried past that tail. Local byte-budget model; no "
+            "network I/O, no cryptographic verification."
+        ),
+    )
+    p_nonce_window.add_argument(
+        "--mode",
+        choices=("capacity", "classify"),
+        default="classify",
+        help=(
+            "'capacity' needs --base-record-bytes and reports record "
+            "counts. 'classify' (default) reads a record list and "
+            "reports window membership."
+        ),
+    )
+    p_nonce_window.add_argument(
+        "--base-record-bytes",
+        type=int,
+        default=None,
+        help=(
+            "Size of an unsigned record in bytes, for --mode "
+            "capacity. Required in that mode."
+        ),
+    )
+    p_nonce_window.add_argument(
+        "--file",
+        default=None,
+        help=(
+            "Path to a JSON record list, a read-API envelope, or a raw "
+            "JSONL export. Use '-' or omit to read stdin. Records "
+            "without a size_bytes field are estimated from a compact "
+            "re-serialization and reported as sizes_estimated. Input "
+            "is treated as untrusted data."
+        ),
+    )
+    p_nonce_window.add_argument(
+        "--window-bytes",
+        type=int,
+        default=None,
+        help=(
+            "Scanned tail budget in bytes. Defaults to 1048576 (1 MiB), "
+            "the value the reference manual documents."
+        ),
+    )
+    p_nonce_window.add_argument(
+        "--did",
+        default=None,
+        help=(
+            "Restrict the signer verdict to this identity string, "
+            "matched against each record's did (or from) field exactly."
+        ),
+    )
+    p_nonce_window.set_defaults(func=cmd_nonce_window)
 
     p_chunk = sub.add_parser(
         "chunk",

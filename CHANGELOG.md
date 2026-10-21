@@ -5,6 +5,77 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.7] — 2026-10-21
+
+### Added
+- `src/technocore_nonce_window.py`: server-side nonce replay
+  window accounting — **v1.0.7**. Answers a question the nonce
+  checker cannot, because answering it needs room history the
+  checker never holds: *for the records I hold, is the server still
+  able to see the last nonce my key used?*
+  - The manual states a captured signed URL is single-use "only
+    while the message remains in the newest 1 MiB scanned for the
+    last nonce", and that "once newer traffic buries it beyond that
+    tail, the same URL is accepted again even if the message
+    remains elsewhere in the larger room ring". This module makes
+    that byte budget computable.
+  - `capacity_report(base_record_bytes, *, window_bytes=...)`
+    returns a frozen `CapacityReport` with `window_bytes`,
+    `base_record_bytes`, `signed_record_bytes`, `unsigned_records`,
+    `signed_records`, `records_lost`, and `fraction_lost`. The
+    manual's "roughly a third fewer records" ratio is **not** a
+    constant — it depends on the unsigned record size — so it is
+    computed from the caller's value rather than hard-coded.
+  - `classify_window(entries, *, window_bytes=..., did=None)`
+    returns a frozen `WindowReport`: `in_window_records`,
+    `in_window_bytes`, `expired_records`, `expired_bytes`,
+    `oldest_protected_seq`, `newest_expired_seq`, and — when
+    `did` is supplied — `did_in_window_records`,
+    `did_expired_records`, `did_last_nonce_in_window`,
+    `did_last_seen_protected`, and `reason`.
+    `did_last_seen_protected is False` is the documented expiry
+    condition: the key's captured signed URLs are no longer
+    protected against re-acceptance.
+  - `records_in_window` floors at 0 rather than raising when a
+    single record exceeds the whole budget, because a busy room
+    occupying the entire tail is a real condition.
+  - `sig_field_overhead` recomputes the 95-byte `sig` member cost
+    from the 86-character signature length, so the code figure and
+    the manual's figure agree **by construction** rather than by
+    coincidence.
+- `scripts/technocore_cli.py`: new `nonce-window` subcommand with
+  `--mode capacity|classify`, `--base-record-bytes`, `--file`,
+  `--window-bytes`, and `--did`. Reads a JSON record list, a
+  read-API envelope, or a raw JSONL export; input is treated as
+  untrusted data.
+- `docs/nonce-window.md`: design + field report, including the
+  inclusive-boundary assumption and the full limitations list.
+- 101 unit tests + 13 subtests
+  (`tests/test_nonce_window.py`) and 12 CLI subprocess tests
+  (`tests/test_cli.py::NonceWindowCommandTests`).
+
+### Limitations
+- This is a **local byte-budget model over records the caller
+  already holds**. It performs no network I/O, no fetch, no
+  subprocess, no URL resolution, and no decoding, and it never
+  inspects participant-supplied content as anything other than a
+  size. It reports a *model* of the documented rule; it is not a
+  query to the server and it does not establish what the server
+  actually scanned.
+- The window boundary is modelled as **inclusive** — a record
+  whose cumulative size equals `window_bytes` exactly counts as
+  still inside. The manual does not publish the server's
+  inclusive/exclusive rule, so the inclusive reading is the
+  conservative one: it reports a record as protected for slightly
+  longer than an exclusive reading would.
+- `DEFAULT_NONCE_WINDOW_BYTES` (1 MiB) is not published in
+  `/config` and is not stated to be per-deployment configurable, so
+  a deployment that differs requires an explicit `window_bytes`.
+- Records without a `size_bytes` field are estimated by the CLI
+  from a compact re-serialization and reported as
+  `sizes_estimated`; the estimate is not the server's stored
+  representation.
+
 ## [1.0.6] — 2026-10-20
 
 ### Added

@@ -25,6 +25,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from src.technocore_verify import canonical_bytes, did_from_public_key
+from src.technocore_nonce_window import MIB  # noqa: E402  (used by NonceWindowCommandTests)
 
 
 _CLI = os.path.join(ROOT, "scripts", "technocore_cli.py")
@@ -1491,6 +1492,119 @@ class BindingCommandTests(unittest.TestCase):
         code, out, _ = _run(["--help"])
         self.assertEqual(code, 0)
         self.assertIn("binding", out)
+
+
+
+class NonceWindowCommandTests(unittest.TestCase):
+    """Subprocess tests for the ``nonce-window`` subcommand."""
+
+    def setUp(self):
+        self.did = "did:key:z6MkhiRKcJjvdy1s4m6np8GgoLoqgVaRm5PmUVNKKiW9VpEZ"
+        self.other_did = "did:key:z6MkhsdF1d9uRXZxK1tX4Fz1P2C6D8E7G9H0J2L4"
+        self.base_record = {"from": self.did, "text": "hello", "nonce": "1"}
+        self.base_record_size = len(json.dumps(self.base_record, separators=(",", ":"), ensure_ascii=False)) + 1
+        self.unsigned_record = {"from": "~nick", "text": "hello"}
+
+    def _record_list_json(self, records):
+        return json.dumps(records)
+
+    def test_capacity_mode_reports_correct_numbers(self):
+        code, out, err = _run(["nonce-window", "--mode", "capacity", "--base-record-bytes", str(self.base_record_size)])
+        self.assertEqual(code, 0, err)
+        payload = _parse_stdout_line(out)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "nonce-window")
+        result = payload["result"]
+        self.assertEqual(result["mode"], "capacity")
+        self.assertEqual(result["base_record_bytes"], self.base_record_size)
+        self.assertEqual(result["unsigned_records"], MIB // self.base_record_size)
+        self.assertGreater(result["fraction_lost"], 0.0)
+
+    def test_classify_mode_from_stdin(self):
+        entries = [
+            self.base_record,
+            {"from": self.other_did, "text": "world", "nonce": "2", "size_bytes": 200},
+            {"from": self.did, "text": "again", "nonce": "3"},
+        ]
+        stdin_text = self._record_list_json(entries)
+        code, out, err = _run(["nonce-window", "--mode", "classify", "--window-bytes", "500", "--did", self.did], stdin_text=stdin_text)
+        self.assertEqual(code, 0, err)
+        payload = _parse_stdout_line(out)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "nonce-window")
+        result = payload["result"]
+        self.assertEqual(result["mode"], "classify")
+        self.assertEqual(result["did"], self.did)
+        self.assertTrue(result["did_last_seen_protected"])
+        self.assertEqual(result["did_last_nonce_in_window"], "3")
+        self.assertTrue(result["sizes_estimated"])
+
+    def test_classify_mode_with_raw_jsonl_input(self):
+        jsonl_input = (
+            f'{json.dumps(self.base_record, separators=(",", ":"), ensure_ascii=False)}\n'
+            f'{json.dumps({"from": self.other_did, "text": "world", "nonce": "2"}, separators=(",", ":"), ensure_ascii=False)}\n'
+        )
+        code, out, err = _run(["nonce-window", "--mode", "classify", "--did", self.did], stdin_text=jsonl_input)
+        self.assertEqual(code, 0, err)
+        payload = _parse_stdout_line(out)
+        result = payload["result"]
+        self.assertTrue(result["did_last_seen_protected"])
+        self.assertTrue(result["sizes_estimated"])
+
+    def test_classify_mode_with_expired_signer(self):
+        entries = [
+            {"from": self.did, "text": "old", "nonce": "1"},
+            {"from": self.other_did, "text": "new1", "nonce": "1"},
+            {"from": self.other_did, "text": "new2", "nonce": "2"},
+        ]
+        stdin_text = self._record_list_json(entries)
+        # A window that only fits the last two messages, so `self.did`'s message is expired.
+        code, out, err = _run(["nonce-window", "--mode", "classify", "--window-bytes", "200", "--did", self.did], stdin_text=stdin_text)
+        self.assertEqual(code, 0, err)
+        payload = _parse_stdout_line(out)
+        result = payload["result"]
+        self.assertFalse(result["did_last_seen_protected"])
+        self.assertIn("buried past the scanned tail", result["reason"])
+
+    def test_classify_mode_rejects_malformed_json(self):
+        code, out, err = _run(["nonce-window", "--mode", "classify"], stdin_text="not json")
+        self.assertEqual(code, 2)
+        self.assertIn("failed: input did not contain a record list", _parse_stderr_line(err)["error"])
+
+    def test_classify_mode_rejects_empty_input(self):
+        code, out, err = _run(["nonce-window", "--mode", "classify"], stdin_text="")
+        self.assertEqual(code, 2)
+        self.assertIn("failed: input did not contain a record list", _parse_stderr_line(err)["error"])
+
+    def test_classify_mode_rejects_non_list_input(self):
+        code, out, err = _run(["nonce-window", "--mode", "classify"], stdin_text="{}")
+        self.assertEqual(code, 2)
+        self.assertIn("failed: input did not contain a record list", _parse_stderr_line(err)["error"])
+
+    def test_classify_mode_rejects_non_object_record(self):
+        code, out, err = _run(["nonce-window", "--mode", "classify"], stdin_text="[1]")
+        self.assertEqual(code, 2)
+        self.assertIn("failed: every record must be a JSON object", _parse_stderr_line(err)["error"])
+
+    def test_classify_mode_rejects_malformed_jsonl(self):
+        code, out, err = _run(["nonce-window", "--mode", "classify"], stdin_text="{}\nnot json")
+        self.assertEqual(code, 2)
+        self.assertIn("failed: line 2 is not valid JSON", _parse_stderr_line(err)["error"])
+
+    def test_capacity_mode_rejects_missing_base_record_bytes(self):
+        code, out, err = _run(["nonce-window", "--mode", "capacity"])
+        self.assertEqual(code, 2)
+        self.assertIn("argument --base-record-bytes is required", err)
+
+    def test_capacity_mode_rejects_non_positive_base_record_bytes(self):
+        code, out, err = _run(["nonce-window", "--mode", "capacity", "--base-record-bytes", "0"])
+        self.assertEqual(code, 2)
+        self.assertIn("--base-record-bytes must be a positive int", _parse_stderr_line(err)["error"])
+
+    def test_rejects_non_positive_window_bytes(self):
+        code, out, err = _run(["nonce-window", "--window-bytes", "0", "--mode", "capacity", "--base-record-bytes", "100"])
+        self.assertEqual(code, 2)
+        self.assertIn("--window-bytes must be a positive int", _parse_stderr_line(err)["error"])
 
 
 if __name__ == "__main__":
